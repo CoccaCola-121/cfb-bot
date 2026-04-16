@@ -1,0 +1,16 @@
+{
+  "name": "cfb-league-discord-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for a 120-team college football league (play.football-gm.com)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "node-fetch": "^2.7.0",
+    "googleapis": "^140.0.1"
+  }
+}
