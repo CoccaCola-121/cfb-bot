@@ -3,15 +3,12 @@ require('dotenv').config();
 
 const loadweek = require('./commands/loadweek');
 
-const commands = [
-  loadweek.data.toJSON()
-];
+const commands = [loadweek.data.toJSON()];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Registering guild commands...');
     const data = await rest.put(
       Routes.applicationGuildCommands(
         process.env.CLIENT_ID,
@@ -20,19 +17,11 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
       { body: commands }
     );
 
-    console.log('Registered commands:');
+    console.log('Guild commands deployed:');
     for (const cmd of data) {
-      console.log({
-        name: cmd.name,
-        description: cmd.description,
-        options: cmd.options?.map(o => ({
-          name: o.name,
-          type: o.type,
-          required: o.required
-        })) || []
-      });
+      console.log(cmd.name, cmd.options?.map(o => o.name));
     }
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error(err);
   }
 })();

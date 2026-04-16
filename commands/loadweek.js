@@ -1,10 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs/promises');
 const path = require('path');
-const zlib = require('zlib');
-const { promisify } = require('util');
 
-const gunzip = promisify(zlib.gunzip);
 const SAVE_PATH = path.join(process.cwd(), 'data', 'weekData.json');
 
 module.exports = {
@@ -13,100 +10,71 @@ module.exports = {
     .setDescription('Load week data from a JSON attachment')
     .addAttachmentOption(option =>
       option
-        .setName('file')
-        .setDescription('Upload a .json or .json.gz file')
+        .setName('weekfile')
+        .setDescription('Upload a .json file')
         .setRequired(true)
     ),
 
   async execute(interaction) {
-    await interaction.deferReply();
-
     try {
-      console.log('interaction.commandName =', interaction.commandName);
+      await interaction.deferReply();
+
+      console.log('Received /loadweek');
       console.log(
-        'interaction.options.data =',
         JSON.stringify(
           interaction.options.data.map(o => ({
             name: o.name,
             type: o.type,
             value: o.value ?? null,
-            attachment: o.attachment
-              ? {
-                  name: o.attachment.name,
-                  url: o.attachment.url,
-                  contentType: o.attachment.contentType ?? null,
-                  size: o.attachment.size ?? null
-                }
-              : null
+            attachmentName: o.attachment?.name ?? null,
+            attachmentUrl: o.attachment?.url ?? null
           })),
           null,
           2
         )
       );
 
-      const attachment = interaction.options.getAttachment('file', true);
+      const attachment = interaction.options.getAttachment('weekfile', true);
 
-      const rawBuffer = await downloadAttachment(attachment.url);
-      const parsed = await parseJsonBuffer(rawBuffer);
+      const res = await fetch(attachment.url, {
+        headers: { 'User-Agent': 'NZCFLBot/1.0' }
+      });
+
+      if (!res.ok) {
+        throw new Error(`attachment download failed: HTTP ${res.status}`);
+      }
+
+      const text = (await res.text()).replace(/^\uFEFF/, '').trim();
+
+      if (!text) {
+        throw new Error('uploaded file was empty');
+      }
+
+      if (text[0] !== '{' && text[0] !== '[') {
+        throw new Error(`file starts with "${text.slice(0, 20)}", not JSON`);
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`invalid JSON: ${err.message}`);
+      }
 
       await fs.mkdir(path.dirname(SAVE_PATH), { recursive: true });
       await fs.writeFile(SAVE_PATH, JSON.stringify(parsed, null, 2), 'utf8');
 
-      return interaction.editReply(
-        `✅ Week data loaded successfully from **${attachment.name}**`
+      await interaction.editReply(
+        `✅ Loaded week data from **${attachment.name}**`
       );
     } catch (err) {
-      console.error('[loadweek] failed:', err);
-      return interaction.editReply(`❌ Failed to load week data: ${err.message}`);
+      console.error('[loadweek] error:', err);
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(`❌ Failed to load week data: ${err.message}`);
+      } else {
+        await interaction.reply(`❌ Failed to load week data: ${err.message}`);
+      }
     }
   }
 };
-
-async function downloadAttachment(url) {
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'User-Agent': 'NZCFLBot/1.0'
-    }
-  });
-
-  if (!res.ok) {
-    throw new Error(`attachment download failed: HTTP ${res.status} ${res.statusText}`);
-  }
-
-  const arr = await res.arrayBuffer();
-  const buf = Buffer.from(arr);
-
-  if (!buf.length) {
-    throw new Error('attachment was empty');
-  }
-
-  return buf;
-}
-
-async function parseJsonBuffer(buf) {
-  let text;
-  const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
-
-  if (isGzip) {
-    text = (await gunzip(buf)).toString('utf8');
-  } else {
-    text = buf.toString('utf8');
-  }
-
-  text = text.replace(/^\uFEFF/, '').trim();
-
-  if (!text) {
-    throw new Error('decoded file is empty');
-  }
-
-  if (text.startsWith('<!DOCTYPE html') || text.startsWith('<html')) {
-    throw new Error('got HTML instead of JSON');
-  }
-
-  if (text[0] !== '{' && text[0] !== '[') {
-    throw new Error(`decoded file starts with "${text.slice(0, 20)}", not JSON`);
-  }
-
-  return JSON.parse(text);
-}
