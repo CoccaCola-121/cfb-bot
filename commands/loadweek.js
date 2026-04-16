@@ -1,18 +1,5 @@
 // ============================================================
 //  commands/loadweek.js
-//  /loadweek
-//
-//  Supports:
-//    1. Attached .json export
-//    2. Attached .json.gz export
-//    3. URL to raw .json or .json.gz
-//    4. Dropbox shared/direct links
-//
-//  This version is optimized to avoid high memory usage:
-//  - download to temp file via streams
-//  - gunzip via streams
-//  - lightweight validation only
-//  - save to data/ without parsing full JSON in memory
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -31,41 +18,6 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function normalizeDropboxUrl(inputUrl) {
-  let parsed;
-
-  try {
-    parsed = new URL(inputUrl);
-  } catch {
-    return inputUrl;
-  }
-
-  const host = parsed.hostname.toLowerCase();
-
-  const isDropbox =
-    host === 'dropbox.com' ||
-    host === 'www.dropbox.com' ||
-    host === 'dl.dropbox.com' ||
-    host === 'dl.dropboxusercontent.com';
-
-  if (!isDropbox) {
-    return inputUrl;
-  }
-
-  parsed.searchParams.set('dl', '1');
-  parsed.searchParams.delete('raw');
-
-  if (
-    host === 'www.dropbox.com' ||
-    host === 'dropbox.com' ||
-    host === 'dl.dropbox.com'
-  ) {
-    parsed.hostname = 'dl.dropboxusercontent.com';
-  }
-
-  return parsed.toString();
-}
-
 function looksLikeSupportedFilename(name) {
   const lower = String(name || '').toLowerCase();
   return lower.endsWith('.json') || lower.endsWith('.json.gz') || lower.endsWith('.gz');
@@ -74,7 +26,6 @@ function looksLikeSupportedFilename(name) {
 function isGzipByNameOrType(name = '', contentType = '') {
   const lowerName = String(name || '').toLowerCase();
   const lowerType = String(contentType || '').toLowerCase();
-
   return lowerName.endsWith('.gz') || lowerType.includes('gzip');
 }
 
@@ -93,10 +44,75 @@ function toNodeReadable(webStream) {
   return Readable.fromWeb(webStream);
 }
 
+function getDropboxCandidateUrls(inputUrl) {
+  const urls = [];
+  const seen = new Set();
+
+  const add = (url) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+
+  add(inputUrl);
+
+  let parsed;
+  try {
+    parsed = new URL(inputUrl);
+  } catch {
+    return urls;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const isDropbox =
+    host === 'dropbox.com' ||
+    host === 'www.dropbox.com' ||
+    host === 'dl.dropbox.com' ||
+    host === 'dl.dropboxusercontent.com';
+
+  if (!isDropbox) {
+    return urls;
+  }
+
+  // Variant 1: dl=1
+  {
+    const u = new URL(parsed.toString());
+    u.searchParams.set('dl', '1');
+    add(u.toString());
+  }
+
+  // Variant 2: raw=1
+  {
+    const u = new URL(parsed.toString());
+    u.searchParams.delete('dl');
+    u.searchParams.set('raw', '1');
+    add(u.toString());
+  }
+
+  // Variant 3: switch to dl.dropboxusercontent.com with dl=1
+  {
+    const u = new URL(parsed.toString());
+    u.hostname = 'dl.dropboxusercontent.com';
+    u.searchParams.set('dl', '1');
+    add(u.toString());
+  }
+
+  // Variant 4: switch to dl.dropboxusercontent.com with raw=1
+  {
+    const u = new URL(parsed.toString());
+    u.hostname = 'dl.dropboxusercontent.com';
+    u.searchParams.delete('dl');
+    u.searchParams.set('raw', '1');
+    add(u.toString());
+  }
+
+  return urls;
+}
+
 async function streamDownloadToFile(targetUrl, destinationPath, options = {}) {
   const {
-    retries = 3,
-    timeoutMs = 30000,
+    retries = 2,
+    timeoutMs = 45000,
     label = 'download',
   } = options;
 
@@ -111,12 +127,6 @@ async function streamDownloadToFile(targetUrl, destinationPath, options = {}) {
         method: 'GET',
         redirect: 'follow',
         signal: controller.signal,
-        headers: {
-          'User-Agent': 'cfb-bot/1.0',
-          'Accept': '*/*',
-          'Accept-Encoding': 'identity',
-          'Cache-Control': 'no-cache',
-        },
       });
 
       if (!res.ok) {
@@ -171,29 +181,37 @@ async function gunzipFileToFile(sourcePath, destinationPath) {
   return stat.size;
 }
 
-async function validateJsonFileLight(filePath) {
-  // Read only the first chunk and check that it looks like a Football GM export
+async function inspectFileStart(filePath) {
   const fh = await fsp.open(filePath, 'r');
 
   try {
     const buffer = Buffer.alloc(65536);
     const { bytesRead } = await fh.read(buffer, 0, buffer.length, 0);
-    const head = buffer.slice(0, bytesRead).toString('utf8').trimStart();
-
-    if (!head.startsWith('{')) {
-      throw new Error('File does not appear to begin with a JSON object');
-    }
-
-    const hasVersion = head.includes('"version"');
-    const hasMeta = head.includes('"meta"');
-    const hasTeams = head.includes('"teams"');
-    const hasPlayers = head.includes('"players"');
-
-    if (!(hasTeams || hasPlayers || hasVersion || hasMeta)) {
-      throw new Error('File did not look like a Football GM export');
-    }
+    const head = buffer.slice(0, bytesRead).toString('utf8');
+    return head;
   } finally {
     await fh.close();
+  }
+}
+
+async function validateJsonFileLight(filePath) {
+  const head = (await inspectFileStart(filePath)).trimStart();
+
+  if (head.startsWith('<!DOCTYPE html') || head.startsWith('<html') || head.includes('<head')) {
+    throw new Error('Downloaded page was HTML, not the raw export file');
+  }
+
+  if (!head.startsWith('{')) {
+    throw new Error('File does not appear to begin with a JSON object');
+  }
+
+  const hasVersion = head.includes('"version"');
+  const hasMeta = head.includes('"meta"');
+  const hasTeams = head.includes('"teams"');
+  const hasPlayers = head.includes('"players"');
+
+  if (!(hasVersion || hasMeta || hasTeams || hasPlayers)) {
+    throw new Error('File did not look like a Football GM export');
   }
 }
 
@@ -208,6 +226,49 @@ async function removeIfExists(filePath) {
   try {
     await fsp.unlink(filePath);
   } catch {}
+}
+
+async function tryAttachmentDownload(attachment, downloadedPath) {
+  const candidates = [attachment?.url, attachment?.proxyURL].filter(Boolean);
+  let lastError = null;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const url = candidates[i];
+    try {
+      const result = await streamDownloadToFile(url, downloadedPath, {
+        retries: 2,
+        timeoutMs: 45000,
+        label: i === 0 ? 'attachment download' : 'attachment proxy download',
+      });
+      return result;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('No valid attachment URL found');
+}
+
+async function tryUrlDownload(rawUrl, downloadedPath) {
+  const candidates = getDropboxCandidateUrls(rawUrl);
+  let lastError = null;
+  let finalUrl = rawUrl;
+
+  for (const url of candidates) {
+    try {
+      const result = await streamDownloadToFile(url, downloadedPath, {
+        retries: 2,
+        timeoutMs: 45000,
+        label: 'URL download',
+      });
+      finalUrl = url;
+      return { ...result, finalUrl };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('URL download failed');
 }
 
 module.exports = {
@@ -257,9 +318,7 @@ module.exports = {
 
     if (!attachment && !rawUrl) {
       return interaction.editReply(
-        '❌ Please attach a `.json` / `.json.gz` file or provide a URL.\n' +
-        'Example: `/loadweek jsonfile:[attach file]`\n' +
-        'Or: `/loadweek url:https://yourlink.com/export.json.gz`'
+        '❌ Please attach a `.json` / `.json.gz` file or provide a URL.'
       );
     }
 
@@ -268,7 +327,6 @@ module.exports = {
     const processedJsonPath = path.join(tempDir, 'processed.json');
 
     let sourceDesc = '';
-    let normalizedUrl = rawUrl;
 
     try {
       if (attachment) {
@@ -278,12 +336,7 @@ module.exports = {
           return interaction.editReply('❌ File must be a `.json`, `.json.gz`, or `.gz` file.');
         }
 
-        const downloadUrl = attachment.proxyURL || attachment.url;
-        const { contentType } = await streamDownloadToFile(downloadUrl, downloadedPath, {
-          retries: 3,
-          timeoutMs: 45000,
-          label: 'attachment download',
-        });
+        const { contentType } = await tryAttachmentDownload(attachment, downloadedPath);
 
         if (isGzipByNameOrType(lowerName, contentType)) {
           await gunzipFileToFile(downloadedPath, processedJsonPath);
@@ -293,28 +346,18 @@ module.exports = {
 
         sourceDesc = `📎 ${attachment.name}`;
       } else {
-        normalizedUrl = normalizeDropboxUrl(rawUrl);
+        const { contentType, finalUrl } = await tryUrlDownload(rawUrl, downloadedPath);
 
-        const { contentType } = await streamDownloadToFile(normalizedUrl, downloadedPath, {
-          retries: 3,
-          timeoutMs: 45000,
-          label: 'URL download',
-        });
-
-        if (isGzipByNameOrType(normalizedUrl, contentType)) {
+        if (isGzipByNameOrType(finalUrl, contentType)) {
           await gunzipFileToFile(downloadedPath, processedJsonPath);
         } else {
           await fsp.copyFile(downloadedPath, processedJsonPath);
         }
 
-        sourceDesc =
-          normalizedUrl === rawUrl
-            ? '🔗 URL'
-            : '🔗 URL (Dropbox normalized)';
+        sourceDesc = `🔗 URL`;
       }
 
       await validateJsonFileLight(processedJsonPath);
-
       const savedFile = await copyFileIntoData(processedJsonPath, label);
 
       const embed = new EmbedBuilder()
@@ -325,10 +368,7 @@ module.exports = {
           { name: '💾 Saved as', value: savedFile, inline: true },
           { name: '🏈 Status', value: 'Ready to use', inline: true }
         )
-        .setDescription(
-          'The export was downloaded, processed, and saved.\n' +
-          'Commands should now read from the newly loaded file.'
-        )
+        .setDescription('The export was downloaded, processed, and saved.')
         .setFooter({ text: `Loaded by ${interaction.user.username}` })
         .setTimestamp();
 
