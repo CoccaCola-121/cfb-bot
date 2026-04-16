@@ -8,13 +8,26 @@
 //    3. URL to raw .json or .json.gz
 //    4. Dropbox shared/direct links
 //
-//  Only users with the role defined in ADMIN_ROLE (.env) can run this.
-//  If ADMIN_ROLE is not set, anyone can run it.
+//  This version is optimized to avoid high memory usage:
+//  - download to temp file via streams
+//  - gunzip via streams
+//  - lightweight validation only
+//  - save to data/ without parsing full JSON in memory
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const path = require('path');
+const os = require('os');
 const zlib = require('zlib');
-const { saveLeagueData, getStandings } = require('../utils/data');
+const { pipeline } = require('stream/promises');
+const { Readable } = require('stream');
+
+const DATA_DIR = path.join(__dirname, '..', 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -39,24 +52,51 @@ function normalizeDropboxUrl(inputUrl) {
     return inputUrl;
   }
 
-  // Force direct download behavior
   parsed.searchParams.set('dl', '1');
   parsed.searchParams.delete('raw');
 
-  // Standardize common hosts where possible
-  if (host === 'www.dropbox.com' || host === 'dropbox.com') {
-    parsed.hostname = 'dl.dropboxusercontent.com';
-  } else if (host === 'dl.dropbox.com') {
+  if (
+    host === 'www.dropbox.com' ||
+    host === 'dropbox.com' ||
+    host === 'dl.dropbox.com'
+  ) {
     parsed.hostname = 'dl.dropboxusercontent.com';
   }
 
   return parsed.toString();
 }
 
-async function fetchBufferWithRetry(targetUrl, options = {}) {
+function looksLikeSupportedFilename(name) {
+  const lower = String(name || '').toLowerCase();
+  return lower.endsWith('.json') || lower.endsWith('.json.gz') || lower.endsWith('.gz');
+}
+
+function isGzipByNameOrType(name = '', contentType = '') {
+  const lowerName = String(name || '').toLowerCase();
+  const lowerType = String(contentType || '').toLowerCase();
+
+  return lowerName.endsWith('.gz') || lowerType.includes('gzip');
+}
+
+function sanitizeLabel(label) {
+  return String(label || Date.now()).replace(/[^\w-]+/g, '_');
+}
+
+function makeSavedFilename(label) {
+  return `league_${sanitizeLabel(label)}.json`;
+}
+
+function toNodeReadable(webStream) {
+  if (!webStream) {
+    throw new Error('Response body stream was missing');
+  }
+  return Readable.fromWeb(webStream);
+}
+
+async function streamDownloadToFile(targetUrl, destinationPath, options = {}) {
   const {
     retries = 3,
-    timeoutMs = 25000,
+    timeoutMs = 30000,
     label = 'download',
   } = options;
 
@@ -83,18 +123,29 @@ async function fetchBufferWithRetry(targetUrl, options = {}) {
         throw new Error(`HTTP ${res.status}`);
       }
 
-      const arrayBuffer = await res.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      await pipeline(
+        toNodeReadable(res.body),
+        fs.createWriteStream(destinationPath)
+      );
 
-      if (!buffer.length) {
+      clearTimeout(timeout);
+
+      const stat = await fsp.stat(destinationPath);
+      if (!stat.size || stat.size <= 0) {
         throw new Error('Downloaded file was empty');
       }
 
-      clearTimeout(timeout);
-      return buffer;
+      return {
+        sizeBytes: stat.size,
+        contentType: res.headers.get('content-type') || '',
+      };
     } catch (err) {
       clearTimeout(timeout);
       lastError = err;
+
+      try {
+        await fsp.unlink(destinationPath);
+      } catch {}
 
       if (attempt < retries) {
         await sleep(500 * attempt);
@@ -105,57 +156,58 @@ async function fetchBufferWithRetry(targetUrl, options = {}) {
   throw new Error(`${label} failed after ${retries} attempt(s): ${lastError.message}`);
 }
 
-async function downloadAttachmentBuffer(attachment) {
-  const urlsToTry = [];
+async function gunzipFileToFile(sourcePath, destinationPath) {
+  await pipeline(
+    fs.createReadStream(sourcePath),
+    zlib.createGunzip(),
+    fs.createWriteStream(destinationPath)
+  );
 
-  if (attachment?.url) {
-    urlsToTry.push({ url: attachment.url, label: 'attachment.url' });
+  const stat = await fsp.stat(destinationPath);
+  if (!stat.size || stat.size <= 0) {
+    throw new Error('Decompressed file was empty');
   }
 
-  if (attachment?.proxyURL && attachment.proxyURL !== attachment.url) {
-    urlsToTry.push({ url: attachment.proxyURL, label: 'attachment.proxyURL' });
-  }
-
-  let lastError;
-
-  for (const candidate of urlsToTry) {
-    try {
-      return await fetchBufferWithRetry(candidate.url, {
-        retries: 3,
-        timeoutMs: 25000,
-        label: candidate.label,
-      });
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  throw lastError || new Error('No valid attachment URL found');
+  return stat.size;
 }
 
-function maybeGunzip(buffer, filename = '', contentType = '') {
-  const lowerName = String(filename || '').toLowerCase();
-  const lowerType = String(contentType || '').toLowerCase();
-
-  const looksGzip =
-    lowerName.endsWith('.gz') ||
-    lowerType.includes('gzip') ||
-    (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b);
-
-  if (!looksGzip) {
-    return buffer.toString('utf8');
-  }
+async function validateJsonFileLight(filePath) {
+  // Read only the first chunk and check that it looks like a Football GM export
+  const fh = await fsp.open(filePath, 'r');
 
   try {
-    return zlib.gunzipSync(buffer).toString('utf8');
-  } catch (err) {
-    throw new Error(`Failed to decompress gzip file: ${err.message}`);
+    const buffer = Buffer.alloc(65536);
+    const { bytesRead } = await fh.read(buffer, 0, buffer.length, 0);
+    const head = buffer.slice(0, bytesRead).toString('utf8').trimStart();
+
+    if (!head.startsWith('{')) {
+      throw new Error('File does not appear to begin with a JSON object');
+    }
+
+    const hasVersion = head.includes('"version"');
+    const hasMeta = head.includes('"meta"');
+    const hasTeams = head.includes('"teams"');
+    const hasPlayers = head.includes('"players"');
+
+    if (!(hasTeams || hasPlayers || hasVersion || hasMeta)) {
+      throw new Error('File did not look like a Football GM export');
+    }
+  } finally {
+    await fh.close();
   }
 }
 
-function looksLikeSupportedFilename(name) {
-  const lower = String(name || '').toLowerCase();
-  return lower.endsWith('.json') || lower.endsWith('.json.gz');
+async function copyFileIntoData(sourcePath, label) {
+  const filename = makeSavedFilename(label);
+  const destinationPath = path.join(DATA_DIR, filename);
+  await fsp.copyFile(sourcePath, destinationPath);
+  return filename;
+}
+
+async function removeIfExists(filePath) {
+  try {
+    await fsp.unlink(filePath);
+  } catch {}
 }
 
 module.exports = {
@@ -177,7 +229,7 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('label')
-        .setDescription('Label for this save, e.g. "Week8" (optional)')
+        .setDescription('Label for this save, e.g. Week8 (optional)')
         .setRequired(false)
     ),
 
@@ -211,92 +263,84 @@ module.exports = {
       );
     }
 
-    let jsonText;
-    let sourceDesc;
+    const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'cfb-bot-'));
+    const downloadedPath = path.join(tempDir, 'downloaded.bin');
+    const processedJsonPath = path.join(tempDir, 'processed.json');
+
+    let sourceDesc = '';
+    let normalizedUrl = rawUrl;
 
     try {
       if (attachment) {
-        if (!looksLikeSupportedFilename(attachment.name)) {
-          return interaction.editReply('❌ File must be a `.json` or `.json.gz` file.');
+        const lowerName = String(attachment.name || '').toLowerCase();
+
+        if (!looksLikeSupportedFilename(lowerName)) {
+          return interaction.editReply('❌ File must be a `.json`, `.json.gz`, or `.gz` file.');
         }
 
-        const fileBuffer = await downloadAttachmentBuffer(attachment);
-        jsonText = maybeGunzip(fileBuffer, attachment.name, attachment.contentType);
+        const downloadUrl = attachment.proxyURL || attachment.url;
+        const { contentType } = await streamDownloadToFile(downloadUrl, downloadedPath, {
+          retries: 3,
+          timeoutMs: 45000,
+          label: 'attachment download',
+        });
+
+        if (isGzipByNameOrType(lowerName, contentType)) {
+          await gunzipFileToFile(downloadedPath, processedJsonPath);
+        } else {
+          await fsp.copyFile(downloadedPath, processedJsonPath);
+        }
+
         sourceDesc = `📎 ${attachment.name}`;
       } else {
-        const normalizedUrl = normalizeDropboxUrl(rawUrl);
-        const fileBuffer = await fetchBufferWithRetry(normalizedUrl, {
+        normalizedUrl = normalizeDropboxUrl(rawUrl);
+
+        const { contentType } = await streamDownloadToFile(normalizedUrl, downloadedPath, {
           retries: 3,
-          timeoutMs: 30000,
+          timeoutMs: 45000,
           label: 'URL download',
         });
 
-        jsonText = maybeGunzip(fileBuffer, normalizedUrl, '');
+        if (isGzipByNameOrType(normalizedUrl, contentType)) {
+          await gunzipFileToFile(downloadedPath, processedJsonPath);
+        } else {
+          await fsp.copyFile(downloadedPath, processedJsonPath);
+        }
+
         sourceDesc =
           normalizedUrl === rawUrl
             ? '🔗 URL'
-            : `🔗 URL (Dropbox normalized)`;
+            : '🔗 URL (Dropbox normalized)';
       }
+
+      await validateJsonFileLight(processedJsonPath);
+
+      const savedFile = await copyFileIntoData(processedJsonPath, label);
+
+      const embed = new EmbedBuilder()
+        .setTitle('✅ League data loaded!')
+        .setColor(0x2ecc71)
+        .addFields(
+          { name: '📂 Source', value: sourceDesc, inline: true },
+          { name: '💾 Saved as', value: savedFile, inline: true },
+          { name: '🏈 Status', value: 'Ready to use', inline: true }
+        )
+        .setDescription(
+          'The export was downloaded, processed, and saved.\n' +
+          'Commands should now read from the newly loaded file.'
+        )
+        .setFooter({ text: `Loaded by ${interaction.user.username}` })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [embed] });
     } catch (err) {
-      return interaction.editReply(`❌ Failed to download the file: ${err.message}`);
+      return interaction.editReply(`❌ Failed to load week data: ${err.message}`);
+    } finally {
+      await removeIfExists(downloadedPath);
+      await removeIfExists(processedJsonPath);
+      try {
+        await fsp.rmdir(tempDir);
+      } catch {}
     }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch {
-      return interaction.editReply(
-        '❌ The file downloaded successfully, but it did not parse as JSON after processing.'
-      );
-    }
-
-    if (!parsed.teams || !Array.isArray(parsed.teams)) {
-      return interaction.editReply(
-        '⚠️ JSON loaded but does not look like a football-gm export (no `teams` array found).\n' +
-        'It was not saved.'
-      );
-    }
-
-    let savedFile;
-    try {
-      savedFile = saveLeagueData(jsonText, label);
-    } catch (err) {
-      return interaction.editReply(`❌ Failed to save the data: ${err.message}`);
-    }
-
-    const standings = getStandings(parsed);
-    const leader = standings[0];
-
-    const embed = new EmbedBuilder()
-      .setTitle('✅ League data loaded!')
-      .setColor(0x2ecc71)
-      .addFields(
-        { name: '📂 Source', value: sourceDesc, inline: true },
-        { name: '💾 Saved as', value: savedFile, inline: true },
-        { name: '🏫 Teams', value: `${parsed.teams.length} teams`, inline: true },
-        {
-          name: '👥 Players',
-          value: `${(parsed.players || []).length} players`,
-          inline: true,
-        },
-        {
-          name: '📅 Season',
-          value: String(parsed.startingSeason ?? parsed.season ?? '?'),
-          inline: true,
-        },
-        {
-          name: '🏆 Current leader',
-          value: leader ? `${leader.name} (${leader.wins}-${leader.losses})` : '—',
-          inline: true,
-        }
-      )
-      .setDescription(
-        'Commands updated with new data:\n' +
-        '`/standings` `/teamstats` `/playerleaders` `/scores`'
-      )
-      .setFooter({ text: `Loaded by ${interaction.user.username}` })
-      .setTimestamp();
-
-    return interaction.editReply({ embeds: [embed] });
   },
 };
