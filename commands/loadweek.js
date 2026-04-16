@@ -5,12 +5,14 @@ const zlib = require('zlib');
 const { promisify } = require('util');
 
 const gunzip = promisify(zlib.gunzip);
+
+// Change this only if your bot stores league data somewhere else
 const SAVE_PATH = path.join(process.cwd(), 'data', 'weekData.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('loadweek')
-    .setDescription('Load week data from a JSON attachment only.')
+    .setDescription('Load week data from a JSON attachment')
     .addAttachmentOption(option =>
       option
         .setName('file')
@@ -22,7 +24,25 @@ module.exports = {
     await interaction.deferReply();
 
     try {
-      const attachment = interaction.options.getAttachment('file');
+      // Debug what Discord actually sent
+      console.log('command:', interaction.commandName);
+      console.log(
+        'options:',
+        JSON.stringify(
+          interaction.options.data.map(o => ({
+            name: o.name,
+            type: o.type,
+            value: o.value ?? null,
+            attachmentName: o.attachment?.name ?? null,
+            attachmentUrl: o.attachment?.url ?? null
+          })),
+          null,
+          2
+        )
+      );
+
+      // Required attachment getter
+      const attachment = interaction.options.getAttachment('file', true);
 
       if (!attachment) {
         return interaction.editReply('❌ No file attachment was received.');
@@ -34,8 +54,15 @@ module.exports = {
       await fs.mkdir(path.dirname(SAVE_PATH), { recursive: true });
       await fs.writeFile(SAVE_PATH, JSON.stringify(parsed, null, 2), 'utf8');
 
+      const summary = summarizeJson(parsed);
+
       return interaction.editReply(
-        `✅ Week data loaded successfully from **${attachment.name}**`
+        [
+          `✅ Week data loaded successfully from **${attachment.name}**`,
+          `**Saved to:** \`${SAVE_PATH}\``,
+          `**Top-level type:** ${Array.isArray(parsed) ? 'array' : 'object'}`,
+          summary ? `**Summary:** ${summary}` : null
+        ].filter(Boolean).join('\n')
       );
     } catch (err) {
       console.error('[loadweek] failed:', err);
@@ -53,7 +80,7 @@ async function downloadAttachment(url) {
   });
 
   if (!res.ok) {
-    throw new Error(`attachment download failed: HTTP ${res.status}`);
+    throw new Error(`attachment download failed: HTTP ${res.status} ${res.statusText}`);
   }
 
   const arr = await res.arrayBuffer();
@@ -96,4 +123,20 @@ async function parseJsonBuffer(buf) {
   } catch (err) {
     throw new Error(`invalid JSON: ${err.message}`);
   }
+}
+
+function summarizeJson(data) {
+  if (Array.isArray(data)) {
+    return `array with ${data.length} item(s)`;
+  }
+
+  if (data && typeof data === 'object') {
+    const keys = Object.keys(data);
+    const preview = keys.slice(0, 8).join(', ');
+    return keys.length
+      ? `${keys.length} top-level key(s): ${preview}${keys.length > 8 ? ', ...' : ''}`
+      : 'empty object';
+  }
+
+  return '';
 }
