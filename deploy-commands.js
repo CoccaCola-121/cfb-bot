@@ -11,9 +11,8 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Started refreshing application guild commands...');
-
-    await rest.put(
+    console.log('Registering guild commands...');
+    const data = await rest.put(
       Routes.applicationGuildCommands(
         process.env.CLIENT_ID,
         process.env.GUILD_ID
@@ -21,7 +20,18 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
       { body: commands }
     );
 
-    console.log('Successfully reloaded application guild commands.');
+    console.log('Registered commands:');
+    for (const cmd of data) {
+      console.log({
+        name: cmd.name,
+        description: cmd.description,
+        options: cmd.options?.map(o => ({
+          name: o.name,
+          type: o.type,
+          required: o.required
+        })) || []
+      });
+    }
   } catch (error) {
     console.error(error);
   }
