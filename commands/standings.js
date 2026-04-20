@@ -104,28 +104,84 @@ function recordPoints(wins = 0, losses = 0, ties = 0) {
   return wins + (ties * 0.5);
 }
 
+// Returns head-to-head record diff between teamA and teamB across completed games.
+// Positive => teamA leads H2H, negative => teamB leads, 0 => tied or never played.
+function getHeadToHeadDiff(leagueData, teamATid, teamBTid) {
+  if (!Array.isArray(leagueData.games)) return 0;
+
+  let aWins = 0;
+  let bWins = 0;
+
+  for (const game of leagueData.games) {
+    const teams = Array.isArray(game.teams) ? game.teams : null;
+    if (!teams || teams.length < 2) continue;
+
+    const t0 = teams[0];
+    const t1 = teams[1];
+
+    // Only count completed games (both teams have a numeric pts value).
+    if (typeof t0?.pts !== 'number' || typeof t1?.pts !== 'number') continue;
+
+    const tids = [t0.tid, t1.tid];
+    if (!tids.includes(teamATid) || !tids.includes(teamBTid)) continue;
+
+    const aTeam = t0.tid === teamATid ? t0 : t1;
+    const bTeam = t0.tid === teamBTid ? t0 : t1;
+
+    if (aTeam.pts > bTeam.pts) aWins += 1;
+    else if (bTeam.pts > aTeam.pts) bWins += 1;
+  }
+
+  return aWins - bWins;
+}
+
+// Sort order: conf record → div record → head-to-head → overall record.
+function sortDivisionTeams(leagueData, teams) {
+  return [...teams].sort((a, b) => {
+    const aConfPts = recordPoints(a.confWins, a.confLosses, a.confTies);
+    const bConfPts = recordPoints(b.confWins, b.confLosses, b.confTies);
+    if (aConfPts !== bConfPts) return bConfPts - aConfPts;
+
+    const aDivPts = recordPoints(a.divWins, a.divLosses, a.divTies);
+    const bDivPts = recordPoints(b.divWins, b.divLosses, b.divTies);
+    if (aDivPts !== bDivPts) return bDivPts - aDivPts;
+
+    // Tied on both conf and div — use H2H if they've played.
+    const h2h = getHeadToHeadDiff(leagueData, a.tid, b.tid);
+    if (h2h !== 0) return -h2h; // more H2H wins comes first
+
+    // Final fallback: overall record.
+    const aTotalPts = recordPoints(a.wins, a.losses, a.ties);
+    const bTotalPts = recordPoints(b.wins, b.losses, b.ties);
+    return bTotalPts - aTotalPts;
+  });
+}
+
 function isEliminatedFromDivision(leagueData, divisionTeams, team) {
   if (!divisionTeams || divisionTeams.length === 0) return false;
 
   const leader = divisionTeams[0];
   if (leader.abbrev === team.abbrev) return false;
 
-  const leaderDivPts = recordPoints(leader.divWins, leader.divLosses, leader.divTies);
   const leaderConfPts = recordPoints(leader.confWins, leader.confLosses, leader.confTies);
+  const leaderDivPts = recordPoints(leader.divWins, leader.divLosses, leader.divTies);
 
   const remaining = countRelevantRemainingGames(leagueData, team.tid);
 
-  const teamCurrentDivPts = recordPoints(team.divWins, team.divLosses, team.divTies);
   const teamCurrentConfPts = recordPoints(team.confWins, team.confLosses, team.confTies);
+  const teamCurrentDivPts = recordPoints(team.divWins, team.divLosses, team.divTies);
 
-  const maxPossibleDivPts = teamCurrentDivPts + remaining.divRemaining;
   const maxPossibleConfPts = teamCurrentConfPts + remaining.confRemaining;
+  const maxPossibleDivPts = teamCurrentDivPts + remaining.divRemaining;
 
-  if (maxPossibleDivPts < leaderDivPts) {
+  // Primary criterion: conference record.
+  if (maxPossibleConfPts < leaderConfPts) {
     return true;
   }
 
-  if (maxPossibleDivPts === leaderDivPts && maxPossibleConfPts < leaderConfPts) {
+  // If they can at best tie the leader in conf record, they also need to catch
+  // them in div record (since that's our secondary sort key).
+  if (maxPossibleConfPts === leaderConfPts && maxPossibleDivPts < leaderDivPts) {
     return true;
   }
 
@@ -173,13 +229,18 @@ module.exports = {
     const conferenceLogo = getConferenceLogoUrl(leagueData, confStandings.conferenceAbbrev);
 
     const embeds = confStandings.divisions.map((division) => {
-      const lines = division.teams.map((team, index) => {
+      // Re-sort locally so display ordering matches our desired tiebreakers
+      // regardless of how the upstream utility sorted the teams.
+      const sortedTeams = sortDivisionTeams(leagueData, division.teams)
+        .map((team, index) => ({ ...team, rank: index + 1 }));
+
+      const lines = sortedTeams.map((team, index) => {
         const overall = formatRecord(team.wins, team.losses, team.ties);
         const confRec = formatRecord(team.confWins, team.confLosses, team.confTies);
         const divRec = formatRecord(team.divWins, team.divLosses, team.divTies);
         const crown = index === 0 ? '👑 ' : '';
 
-        const eliminated = isEliminatedFromDivision(leagueData, division.teams, team);
+        const eliminated = isEliminatedFromDivision(leagueData, sortedTeams, team);
         const eliminatedTag = eliminated ? '\n❌ **Eliminated from division contention**' : '';
 
         return (
@@ -194,7 +255,7 @@ module.exports = {
         .setColor(0x2e86c1)
         .setDescription(lines.join('\n\n'))
         .setFooter({
-          text: 'Sorted by division record, then conference record. Eliminated = cannot catch division leader.',
+          text: 'Sorted by conference record, then division record, then head-to-head. Eliminated = cannot catch division leader.',
         });
 
       if (conferenceLogo) {
