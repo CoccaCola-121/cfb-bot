@@ -10,7 +10,13 @@ const fetchFn = globalThis.fetch
   ? globalThis.fetch.bind(globalThis)
   : require('node-fetch');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+// Prefer Railway mounted volume if available.
+// Fallback to DATA_DIR, then local ./data for dev.
+const DATA_DIR =
+  process.env.RAILWAY_VOLUME_MOUNT_PATH ||
+  process.env.DATA_DIR ||
+  path.join(__dirname, '..', 'data');
+
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const MAX_SAVED_FILES = 2;
