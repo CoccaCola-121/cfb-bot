@@ -17,6 +17,10 @@ const DATA_DIR =
   process.env.DATA_DIR ||
   path.join(__dirname, '..', 'data');
 
+console.log('DATA_DIR =', DATA_DIR);
+console.log('RAILWAY_VOLUME_MOUNT_PATH =', process.env.RAILWAY_VOLUME_MOUNT_PATH || '(not set)');
+console.log('DATA_DIR exists =', fs.existsSync(DATA_DIR));
+
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const MAX_SAVED_FILES = 2;
