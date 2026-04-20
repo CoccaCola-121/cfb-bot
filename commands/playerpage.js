@@ -113,9 +113,9 @@ function getRelevantRatings(player) {
 
   if (pos === 'QB') {
     skillBits = [
-      formatRatingPair('Thv', ratings.thv),
-      formatRatingPair('Thp', ratings.thp),
-      formatRatingPair('Tha', ratings.tha),
+      formatRatingPair('ThV', ratings.thv),
+      formatRatingPair('ThP', ratings.thp),
+      formatRatingPair('ThA', ratings.tha),
       formatRatingPair('Elu', ratings.elu),
     ];
   } else if (['RB', 'WR', 'TE'].includes(pos)) {

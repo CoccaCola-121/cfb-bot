@@ -1,63 +1,60 @@
-const fs = require('fs');
+// ============================================================
+//  CFB League Discord Bot  —  index.js
+//  Entry point: loads config, registers commands, starts bot
+// ============================================================
+
+const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const fs   = require('fs');
 const path = require('path');
-const { Client, Collection, GatewayIntentBits, Events } = require('discord.js');
+
 require('dotenv').config();
 
+// ── Create the Discord client ────────────────────────────────
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+  ],
 });
 
+// ── Load all slash commands from /commands folder ────────────
 client.commands = new Collection();
-
 const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
 for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = require(filePath);
-  if ('data' in command && 'execute' in command) {
+  const command = require(path.join(commandsPath, file));
+  if (command.data && command.execute) {
     client.commands.set(command.data.name, command);
-  } else {
-    console.warn(`Skipping invalid command file: ${file}`);
+    console.log(`✅ Loaded command: /${command.data.name}`);
   }
 }
 
-client.once(Events.ClientReady, c => {
-  console.log(`Logged in as ${c.user.tag}`);
+// ── Bot ready ────────────────────────────────────────────────
+client.once('ready', () => {
+  console.log(`\n🏈 Bot is online as ${client.user.tag}`);
+  console.log(`   Serving ${client.guilds.cache.size} server(s)\n`);
 });
 
-client.on(Events.InteractionCreate, async interaction => {
+// ── Handle slash command interactions ───────────────────────
+client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
-  if (!command) {
-    console.error(`No command matching ${interaction.commandName}`);
-    return;
-  }
+  if (!command) return;
 
   try {
     await command.execute(interaction);
-  } catch (err) {
-    console.error(`Unhandled command error for ${interaction.commandName}:`, err);
-
-    try {
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply('❌ Command crashed.');
-      } else {
-        await interaction.reply({ content: '❌ Command crashed.', ephemeral: true });
-      }
-    } catch (replyErr) {
-      console.error('Failed sending crash reply:', replyErr);
+  } catch (error) {
+    console.error(`Error in /${interaction.commandName}:`, error);
+    const msg = { content: '⚠️ There was an error running that command.', ephemeral: true };
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp(msg);
+    } else {
+      await interaction.reply(msg);
     }
   }
 });
 
-process.on('unhandledRejection', err => {
-  console.error('Unhandled promise rejection:', err);
-});
-
-process.on('uncaughtException', err => {
-  console.error('Uncaught exception:', err);
-});
-
+// ── Log in ───────────────────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN);

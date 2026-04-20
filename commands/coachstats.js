@@ -1,90 +1,462 @@
 // ============================================================
-//  commands/coachstats.js
-//  /coachstats [name]
-//  Reads from Google Sheets tab "CoachStats"
-//  Expected columns: Coach | Team | W | L | Pct | Conf_W | Conf_L | Bowl | Notes
+//  commands/coachstats.js  —  active coaches only
+//  CSV:    accolades, contract, years, conduct
+//  Resume: career W/L, per-year records, recent history
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getSheetData, rowsToObjects } = require('../utils/data');
+const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
+const { fetchSheetCsv, normalize } = require('../utils/sheets');
+
+const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
+const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
+const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
+const RESUME_GID      = '1607727992';
+
+const NAT_TITLE_ASTERISK = new Set(['legend', 'LEGEND']);
+
+// ── Parse Coach CSV ──────────────────────────────────────────
+function parseCoachCsv(rows) {
+  let hi = -1;
+  for (let i = 0; i < Math.min(rows.length, 4); i++) {
+    if (rows[i].some(c => c.toLowerCase().includes('coach') && c.toLowerCase() !== 'coach rankings')) {
+      hi = i; break;
+    }
+  }
+  if (hi === -1) hi = 1;
+
+  const coaches = [];
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r     = rows[i];
+    const coach = (r[0] || '').trim();
+    const team  = (r[1] || '').trim();
+    if (!team || !coach) continue;
+
+    const n  = (idx, def = 0) => { const v = parseFloat(r[idx]); return isNaN(v) ? def : v; };
+    const ni = (idx, def = 0) => Math.round(n(idx, def));
+
+    coaches.push({
+      coach, team,
+      years:       ni(4),
+      promFailed:  ni(5),
+      promKept:    ni(6),
+      breaches:    ni(8),
+      contractYrs: ni(9),
+      bowlWins:    ni(10),
+      divTitles:   ni(11),
+      confTitles:  ni(12),
+      playoffs:    ni(13),
+      natTitles:   ni(14),
+    });
+  }
+  return coaches;
+}
+
+// ── Parse Resume Sheet ───────────────────────────────────────
+// Returns Map<resumeKey, { record, wins, losses, pct, history }>
+// history = [{year, record, team}] sorted ascending
+function parseResumeSheet(rows) {
+  const map = new Map();
+
+  // Find header row (contains 'Coach' and 'Total')
+  let hi = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i].map(c => c.toLowerCase().trim());
+    if (r.includes('coach') && r.includes('total')) { hi = i; break; }
+  }
+  if (hi === -1) return map;
+
+  const header   = rows[hi].map(c => c.trim());
+  const coachCol = header.findIndex(h => h.toLowerCase() === 'coach');
+  const totalCol = header.findIndex(h => h.toLowerCase() === 'total');
+  if (coachCol === -1 || totalCol === -1) return map;
+
+  // Find year columns: headers that are 4-digit years
+  // Year blocks appear twice (record years, then team years)
+  const yearIdxs = header.map((h, i) => (/^\d{4}$/.test(h) ? i : -1)).filter(i => i >= 0);
+  const seen = new Set(); let splitAt = -1;
+  for (let i = 0; i < yearIdxs.length; i++) {
+    const y = header[yearIdxs[i]];
+    if (seen.has(y)) { splitAt = i; break; }
+    seen.add(y);
+  }
+  const recordYearCols = splitAt >= 0 ? yearIdxs.slice(0, splitAt) : yearIdxs;
+  const teamYearCols   = splitAt >= 0 ? yearIdxs.slice(splitAt)    : [];
+
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r     = rows[i];
+    const coach = (r[coachCol] || '').trim();
+    const total = (r[totalCol] || '').trim();
+    if (!coach) continue;
+
+    const m     = total.match(/^(\d+)-(\d+)$/);
+    const wins   = m ? parseInt(m[1]) : 0;
+    const losses = m ? parseInt(m[2]) : 0;
+    const games  = wins + losses;
+
+    // Build year history
+    const recordByYear = new Map();
+    for (const col of recordYearCols) {
+      const y = header[col];
+      const v = (r[col] || '').trim();
+      if (v && /^\d{1,2}-\d{1,2}$/.test(v)) recordByYear.set(y, v);
+    }
+
+    const teamByYear = new Map();
+    for (const col of teamYearCols) {
+      const y = header[col];
+      const v = (r[col] || '').trim();
+      if (v) teamByYear.set(y, v);
+    }
+
+    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]
+      .sort((a, b) => +a - +b);
+
+    const history = allYears.map(y => ({
+      year:   y,
+      record: recordByYear.get(y) || null,
+      team:   teamByYear.get(y)   || null,
+    }));
+
+    map.set(normalize(coach), { record: total, wins, losses, pct: games > 0 ? wins / games : 0, history });
+  }
+  return map;
+}
+
+// ── Ranking formula ──────────────────────────────────────────
+// Wins + win% dominate. Titles matter heavily. Promises ignored.
+function computeScore(c, resume) {
+  if (!resume || c.years < 1) return 0;
+  return (resume.wins  * 1.0)
+       + (resume.pct   * 80)
+       + (c.natTitles  * 120)
+       + (c.confTitles * 18)
+       + (c.divTitles  * 5)
+       + (c.playoffs   * 1.5);
+}
+
+function computeRanks(coaches) {
+  return [...coaches]
+    .map(c => ({ ...c, score: computeScore(c, c.resume) }))
+    .sort((a, b) => b.score - a.score)
+    .map((c, i) => ({ ...c, rank: i + 1 }));
+}
+
+function findTeamByName(leagueData, name) {
+  if (!leagueData?.teams) return null;
+  const t = normalize(name);
+  return leagueData.teams.find(x => !x.disabled && (
+    normalize(getTeamName(x)) === t || normalize(x.region) === t ||
+    normalize(x.name) === t || normalize(x.abbrev) === t
+  )) || null;
+}
+
+// Build team history spans like: "2050-2055: Michigan State (65-0)"
+function buildTeamHistory(history, currentSeason) {
+  // Only entries with a team
+  const withTeam = history.filter(h => h.team).sort((a, b) => +a.year - +b.year);
+  if (!withTeam.length) return [];
+
+  const spans = [];
+  let startYear = withTeam[0].year;
+  let prevYear  = withTeam[0].year;
+  let team      = withTeam[0].team;
+  let w = 0, l = 0;
+
+  function parseWL(rec) {
+    const m = (rec || '').match(/^(\d+)-(\d+)$/);
+    return m ? { w: +m[1], l: +m[2] } : null;
+  }
+
+  // Add first entry's record
+  const p0 = parseWL(history.find(h => h.year === startYear && h.record)?.record);
+  if (p0) { w += p0.w; l += p0.l; }
+
+  for (let i = 1; i < withTeam.length; i++) {
+    const curr = withTeam[i];
+    const consecutive = +curr.year === +prevYear + 1;
+    const sameTeam    = normalize(curr.team) === normalize(team);
+
+    if (sameTeam && consecutive) {
+      // Find record for this year
+      const entry = history.find(h => h.year === curr.year && h.record);
+      const p = parseWL(entry?.record);
+      if (p) { w += p.w; l += p.l; }
+      prevYear = curr.year;
+    } else {
+      spans.push({ startYear, endYear: prevYear, team, w, l });
+      startYear = curr.year;
+      prevYear  = curr.year;
+      team      = curr.team;
+      w = 0; l = 0;
+      const entry = history.find(h => h.year === curr.year && h.record);
+      const p = parseWL(entry?.record);
+      if (p) { w += p.w; l += p.l; }
+    }
+  }
+  spans.push({ startYear, endYear: prevYear, team, w, l });
+
+  return spans.map(s => {
+    const start = String(s.startYear);
+    const end   = String(s.endYear);
+    // Active at current team: use "2056- " format with space
+    const yearLabel = (end === currentSeason || (!currentSeason && s === spans[spans.length - 1]))
+      ? `${start}- `
+      : start === end
+        ? start
+        : `${start}-${end.slice(-2)}`;
+    const recStr = s.w + s.l > 0 ? ` (${s.w}-${s.l})` : '';
+    return `**${yearLabel}:** ${s.team}${recStr}`;
+  });
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('coachstats')
-    .setDescription('Look up a coach\'s record and stats')
+    .setDescription('Look up an active coach')
     .addStringOption(opt =>
-      opt.setName('name')
-         .setDescription('Coach name or partial name (e.g. "Smith" or "John")')
-         .setRequired(true)
+      opt.setName('name').setDescription('Coach name or team').setRequired(true)
     ),
 
   async execute(interaction) {
     await interaction.deferReply();
 
-    let rows;
+    let csvRows, resumeRows;
     try {
-      // Reads the "CoachStats" tab — adjust tab name if yours differs
-      rows = await getSheetData('CoachStats!A:Z');
+      [csvRows, resumeRows] = await Promise.all([
+        fetchSheetCsv(COACH_SHEET_ID, COACH_SHEET_TAB),
+        fetchSheetCsv(RESUME_SHEET_ID, RESUME_GID, true),
+      ]);
     } catch (err) {
-      console.error('Sheets error:', err);
-      return interaction.editReply(`❌ Could not read Google Sheets: ${err.message}`);
+      return interaction.editReply(`❌ Could not load data: ${err.message}`);
     }
 
-    const coaches = rowsToObjects(rows);
-    if (coaches.length === 0) {
-      return interaction.editReply('❌ The CoachStats sheet appears empty or has no header row.');
+    const resumeMap  = parseResumeSheet(resumeRows);
+    const csvCoaches = parseCoachCsv(csvRows);
+    const leagueData = getLatestLeagueData();
+    const currentSeason = leagueData ? String(getCurrentSeason(leagueData)) : null;
+
+    // Patch current season live record into resume total
+    // The resume sheet Total column won't include the in-progress season,
+    // so we add the current team's live record from the Football GM JSON.
+    function patchCurrentSeason(coach, resume) {
+      if (!leagueData || !currentSeason || !resume) return resume;
+      const leagueTeam = findTeamByName(leagueData, coach.team);
+      if (!leagueTeam) return resume;
+      const { getLatestTeamSeason, safeNumber } = require('../utils/data');
+      const seas = getLatestTeamSeason(leagueTeam, getCurrentSeason(leagueData));
+      if (!seas) return resume;
+      const liveW = safeNumber(seas.won);
+      const liveL = safeNumber(seas.lost);
+      if (liveW + liveL === 0) return resume;
+      // Only patch if this year isn't already in history
+      const alreadyHas = resume.history.some(h => h.year === currentSeason && h.record);
+      if (alreadyHas) return resume;
+      const totalW = resume.wins + liveW;
+      const totalL = resume.losses + liveL;
+      const liveRecord = `${liveW}-${liveL}`;
+      const newHistory = [
+        ...resume.history.filter(h => h.year !== currentSeason),
+        { year: currentSeason, record: liveRecord, team: coach.team, livePatched: true },
+      ].sort((a, b) => +a.year - +b.year);
+      return {
+        ...resume,
+        wins:   totalW,
+        losses: totalL,
+        pct:    totalW + totalL > 0 ? totalW / (totalW + totalL) : 0,
+        record: `${totalW}-${totalL}`,
+        history: newHistory,
+      };
     }
 
-    const query = interaction.options.getString('name').toLowerCase();
+    // Attach resume data to each CSV coach
+    const coaches = csvCoaches.map(c => {
+      const rawResume = resumeMap.get(normalize(c.coach)) || null;
+      return { ...c, resume: patchCurrentSeason(c, rawResume) };
+    });
 
-    // Search the Coach column (case-insensitive, partial match)
-    const matches = coaches.filter(c =>
-      (c.Coach || '').toLowerCase().includes(query) ||
-      (c.Team  || '').toLowerCase().includes(query)
-    );
+    const ranked = computeRanks(coaches);
+    if (!ranked.length) return interaction.editReply('❌ No coach data found.');
 
-    if (matches.length === 0) {
-      return interaction.editReply(`❌ No coach found matching **${query}**.`);
+    const query = normalize(interaction.options.getString('name'));
+
+    function matches(c) {
+      const cn = normalize(c.coach);
+      const tn = normalize(c.team);
+      if (cn === query) return true;
+      if (cn.startsWith(query) && cn.length > query.length && /[_\d]/.test(cn[query.length])) return false;
+      if (query.length >= 3 && cn.includes(query)) return true;
+      if (query.length >= 3 && tn.includes(query)) return true;
+      return false;
     }
 
-    if (matches.length > 5) {
-      const names = matches.slice(0, 10).map(c => `• ${c.Coach} (${c.Team})`).join('\n');
-      return interaction.editReply(
-        `Found ${matches.length} coaches. Be more specific, or here are some matches:\n${names}`
-      );
+    const found = ranked.filter(matches);
+    if (!found.length) return interaction.editReply(`❌ No active coach found matching **${interaction.options.getString('name')}**.`);
+
+    if (found.length > 6) {
+      const list = found.slice(0, 8).map(c => `• ${c.coach} (${c.team})`).join('\n');
+      return interaction.editReply(`Found ${found.length} matches — be more specific:\n${list}`);
     }
 
-    // Build an embed for each match (up to 5)
-    const embeds = matches.slice(0, 5).map(coach => {
-      const win  = parseInt(coach.W   || 0);
-      const loss = parseInt(coach.L   || 0);
-      const pct  = win + loss > 0 ? (win / (win + loss)).toFixed(3) : '—';
+    // National title years from the NATIONAL_TITLE_ENTRIES list
+    const NAT_TITLE_ENTRIES = [
+      { year: '2016', aliases: ['evilman2011'] },
+      { year: '2017', aliases: ['unknownuser', '@unknownuser'] },
+      { year: '2018', aliases: ['benjay67'] },
+      { year: '2019', aliases: ['nick', '@nick'] },
+      { year: '2020', aliases: ['nick', '@nick'] },
+      { year: '2021', aliases: ['bigdragondaddy', '@bigdragondaddy'] },
+      { year: '2022', aliases: ['bigdragondaddy', '@bigdragondaddy'] },
+      { year: '2023', aliases: ['julio', '@julio'] },
+      { year: '2024', aliases: ['julio', '@julio'] },
+      { year: '2025', aliases: ['sezenack', '@sezenack'] },
+      { year: '2026', aliases: ['xboy623'] },
+      { year: '2027', aliases: ['@.', '.'] },
+      { year: '2028', aliases: ['mako22', 'mako_22'] },
+      { year: '2029', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
+      { year: '2030', aliases: ['citrojek', '@citrojek'] },
+      { year: '2031', aliases: ['thunderwolf53', '@thunderwolf53'] },
+      { year: '2032', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
+      { year: '2033', aliases: ['citrojek', '@citrojek'] },
+      { year: '2035', aliases: ['thedondraper'] },
+      { year: '2036', aliases: ['dogwoodmaple', '@dogwoodmaple'] },
+      { year: '2037', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
+      { year: '2038', aliases: ['angel', "angel's", "@angel's", '@angel'] },
+      { year: '2039', aliases: ['cashmikey', 'cashmikeygocats', '@cashmikey'] },
+      { year: '2040', aliases: ['unholy', '@unholy'] },
+      { year: '2041', aliases: ['thedondraper'] },
+      { year: '2042', aliases: ['jeremy', '@jeremy'] },
+      { year: '2043', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
+      { year: '2044', aliases: ['bigdragondaddy', '@bigdragondaddy'] },
+      { year: '2045', aliases: ['vin', '@vin'] },
+      { year: '2046', aliases: ['aeroman', '@aeroman'] },
+      { year: '2047', aliases: ['circl', '@circl'] },
+      { year: '2048', aliases: ['jt', '@jt'] },
+      { year: '2049', aliases: ['poke', '@poke'] },
+      { year: '2050', aliases: ['jt', '@jt'] },
+      { year: '2051', aliases: ['coachmrcap', '@coachmrcap', 'mrcap', '@mr.cap'] },
+      { year: '2052', aliases: ['dogwoodmaple', '@dogwoodmaple'] },
+      { year: '2053', aliases: ['dippyflip', '@dippyflip'] },
+      { year: '2054', aliases: ['secret', '@secret'] },
+      { year: '2055', aliases: ['circl', '@circl'] },
+      { year: '2056', aliases: ['coachrich2x', '@coachrich2x', 'coachrich'] },
+      { year: '2057', aliases: ['coachrich2x', '@coachrich2x', 'coachrich'] },
+      { year: '2058', aliases: ['amok', '@amok'] },
+      { year: '2059', aliases: ['legend', '@legend'] },
+    ];
+
+    function getNatTitleYears(coachName) {
+      const rk = normalize(coachName);
+      return NAT_TITLE_ENTRIES
+        .filter(e => e.aliases.some(a => {
+          const an = normalize(a);
+          return an === rk || (an.length >= 4 && rk.includes(an)) || (rk.length >= 4 && an.includes(rk));
+        }))
+        .map(e => e.year);
+    }
+
+    const embeds = found.slice(0, 3).map(c => {
+      const leagueTeam = findTeamByName(leagueData, c.team);
+      const logo       = leagueTeam ? getTeamLogoUrl(leagueTeam) : null;
+      const hasAsterisk = NAT_TITLE_ASTERISK.has(c.coach);
+      const natYears    = getNatTitleYears(c.coach);
+      const natSet      = new Set(natYears);
+
+      // Career record
+      const recStr = c.resume
+        ? `${c.resume.record} (${c.resume.pct.toFixed(3)})`
+        : '—';
+
+      // National titles display
+      const natDisplay = c.natTitles > 0
+        ? `**${c.natTitles}${hasAsterisk ? '*' : ''}**${natYears.length ? ` *(${natYears.join(', ')})*` : ''}`
+        : '**0**';
+
+      // Recent seasons — last 8 from history, trophy on nat title years
+      const recentLines = c.resume?.history
+        ? c.resume.history
+            .filter(h => h.record || h.team)
+            .slice(-8)
+            .map(h => {
+              const trophy = natSet.has(h.year) ? ' 🏆' : '';
+              const parts  = [];
+              if (h.record) parts.push(h.record);
+              if (h.team)   parts.push(h.team);
+              return `**${h.year}:** ${parts.join(' — ')}${trophy}`;
+            })
+        : [];
+
+      // Conduct: only show contract breaches, not promise counts
+      const conductParts = [];
+      if (c.breaches > 0) conductParts.push(`*${c.breaches} contract breach${c.breaches > 1 ? 'es' : ''}*`);
 
       const fields = [
-        { name: '🏫 Team',    value: coach.Team    || '—', inline: true  },
-        { name: '📊 Record',  value: `${win}-${loss} (${pct})`, inline: true },
-        { name: '🏟️ Conf',   value: coach.Conf_W && coach.Conf_L ? `${coach.Conf_W}-${coach.Conf_L}` : '—', inline: true },
-        { name: '🏆 Bowls',   value: coach.Bowl    || '—', inline: true  },
+        {
+          name: 'Career',
+          value: [
+            `Record: **${recStr}**`,
+            `Years:  **${c.years}**`,
+            `Rank:   **#${c.rank}**`,
+          ].join('\n'),
+          inline: true,
+        },
+        {
+          name: 'Accolades',
+          value: [
+            `Nat. Titles:  ${natDisplay}`,
+            `Conf. Titles: **${c.confTitles}**`,
+            `Div. Titles:  **${c.divTitles}**`,
+            `Playoff App.: **${c.playoffs}**`,
+            `Bowl Wins:    **${c.bowlWins}**`,
+          ].join('\n'),
+          inline: true,
+        },
+        {
+          name: 'Contract',
+          value: [
+  `Yrs Remaining: **${c.contractYrs}**`,
+  ...(conductParts.length ? [conductParts.join(' • ')] : []),
+].join('\n'),
+          inline: false,
+        },
       ];
 
-      // Add any extra columns from the sheet dynamically
-      const knownKeys = ['Coach', 'Team', 'W', 'L', 'Pct', 'Conf_W', 'Conf_L', 'Bowl', 'Notes'];
-      const extras = Object.entries(coach)
-        .filter(([k]) => !knownKeys.includes(k) && coach[k])
-        .slice(0, 4);
-      for (const [k, v] of extras) {
-        fields.push({ name: k, value: String(v), inline: true });
+      // Team history spans
+      const teamHistoryLines = buildTeamHistory(c.resume?.history || [], currentSeason);
+      if (teamHistoryLines.length) {
+        // Truncate to fit Discord's 1024-char field limit
+        let teamHistValue = '';
+        for (const line of teamHistoryLines) {
+          const next = teamHistValue ? `${teamHistValue}\n${line}` : line;
+          if (next.length > 1020) break;
+          teamHistValue = next;
+        }
+        fields.push({
+          name: 'Team History',
+          value: teamHistValue,
+          inline: false,
+        });
       }
 
-      if (coach.Notes) {
-        fields.push({ name: '📝 Notes', value: coach.Notes, inline: false });
+      // Recent seasons (last 6, excluding current)
+      if (recentLines.length) {
+        fields.push({
+          name: 'Recent Seasons',
+          value: recentLines.join('\n'),
+          inline: false,
+        });
       }
 
-      return new EmbedBuilder()
-        .setTitle(`🧢 Coach ${coach.Coach}`)
+      const embed = new EmbedBuilder()
+        .setTitle(`🧢 ${c.coach}`)
         .setColor(0x2b4b8c)
+        .setDescription(`**${c.team}**  •  ${c.years} season${c.years !== 1 ? 's' : ''} coached`)
         .addFields(fields)
-        .setFooter({ text: 'Stats from Google Sheets • /coachstats [name]' });
+        .setFooter({ text: hasAsterisk ? '* Disputed title — see league records' : 'Active coaches only • NZCFL Coach Sheet' })
+        .setTimestamp();
+
+      if (logo) embed.setThumbnail(logo);
+      return embed;
     });
 
     return interaction.editReply({ embeds });

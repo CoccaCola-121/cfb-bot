@@ -26,8 +26,9 @@ function getAliasMap() {
     smu: ['southern methodist'],
     southernmethodist: ['smu'],
 
-    byu: ['brigham young', 'texas christian'],
+    byu: ['brigham young'],
     brighamyoung: ['byu'],
+
     tcu: ['texas christian'],
     texaschristian: ['tcu'],
 
@@ -65,7 +66,22 @@ function getAliasMap() {
     notredame: ['nd'],
 
     olemiss: ['mississippi'],
-    mississippi: ['ole miss'],
+    mississippi: ['ole miss', 'olemiss'],
+
+    lsu: ['louisiana state'],
+    louisianastate: ['lsu'],
+
+    ncsu: ['north carolina state', 'nc state'],
+    northcarolinastate: ['ncsu', 'ncstate'],
+    ncstate: ['ncsu', 'northcarolinastate'],
+
+    uab: ['alabama birmingham', 'alabama-birmingham'],
+    alabamabirmingham: ['uab'],
+
+    ucla: ['california los angeles', 'ucla'],
+    californialosangeles: ['ucla'],
+
+    tosu: ['ohio state'],
   };
 }
 
@@ -76,15 +92,20 @@ function buildVariants(...inputs) {
   for (const input of inputs) {
     const base = normalizeTeamName(input);
     if (!base) continue;
-    seen.add(base);
+
+    if (!seen.has(base)) {
+      seen.add(base);
+    }
 
     const queue = [base];
+
     while (queue.length) {
       const current = queue.shift();
       const extra = aliases[current] || [];
+
       for (const item of extra) {
         const normalized = normalizeTeamName(item);
-        if (!seen.has(normalized)) {
+        if (normalized && !seen.has(normalized)) {
           seen.add(normalized);
           queue.push(normalized);
         }
@@ -134,7 +155,7 @@ async function fetchSheetCsv(sheetId, gid) {
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'cfb-bot/1.0',
-      'Accept': 'text/csv,text/plain,*/*',
+      Accept: 'text/csv,text/plain,*/*',
     },
   });
 
@@ -159,9 +180,19 @@ function isScholarshipHeaderRow(row) {
 }
 
 function isRecruitingHeaderRow(row) {
-  const a = String(row[0] || '').toLowerCase();
-  const b = String(row[1] || '').toLowerCase();
-  return a === 'rank' || b === 'score';
+  const a = normalizeTeamName(row[0]);
+  const b = normalizeTeamName(row[1]);
+  const c = normalizeTeamName(row[2]);
+  const d = normalizeTeamName(row[3]);
+
+  return (
+    a === 'rank' ||
+    b === 'school' ||
+    c === 'score' ||
+    d === 'ofrecrui' ||
+    d === 'recruits' ||
+    d === 'ofrecruits'
+  );
 }
 
 function findScholarshipRow(rows, schoolName, abbrev) {
@@ -169,6 +200,7 @@ function findScholarshipRow(rows, schoolName, abbrev) {
 
   for (const row of rows) {
     if (!row.length || isScholarshipHeaderRow(row)) continue;
+
     const rowTeam = row[0];
     if (!rowTeam) continue;
 
@@ -184,13 +216,25 @@ function findRecruitingRow(rows, schoolName, abbrev) {
   const variants = buildVariants(schoolName, abbrev);
 
   for (const row of rows) {
-    if (row.length < 4 || isRecruitingHeaderRow(row)) continue;
+    if (!row.length || row.length < 4 || isRecruitingHeaderRow(row)) continue;
 
-    const maybeTeam = row[1];
-    if (!maybeTeam) continue;
+    const rowSchool = String(row[1] || '').trim();
+    if (!rowSchool) continue;
 
-    if (variants.has(normalizeTeamName(maybeTeam))) {
+    const normalizedRowSchool = normalizeTeamName(rowSchool);
+
+    if (variants.has(normalizedRowSchool)) {
       return row;
+    }
+
+    // small fallback for cases like nc state vs north carolina state
+    for (const variant of variants) {
+      if (
+        normalizedRowSchool.includes(variant) ||
+        variant.includes(normalizedRowSchool)
+      ) {
+        return row;
+      }
     }
   }
 
@@ -227,7 +271,14 @@ async function getRecruitingInfo({ schoolName, abbrev }) {
   const rows = parseCsv(csv);
   const row = findRecruitingRow(rows, schoolName, abbrev);
 
-  if (!row) return null;
+  if (!row) {
+    console.log('[getRecruitingInfo] no 247 row match for:', {
+      schoolName,
+      abbrev,
+      variants: [...buildVariants(schoolName, abbrev)],
+    });
+    return null;
+  }
 
   const recruitIds = row
     .slice(4)

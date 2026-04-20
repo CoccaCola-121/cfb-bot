@@ -1,6 +1,5 @@
 // ============================================================
-//  commands/help.js
-//  /help  —  Lists all commands and how to use them
+//  commands/help.js  —  UPDATED with all new commands
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -19,50 +18,56 @@ module.exports = {
         {
           name: '📊 Stats & Standings',
           value: [
-            '`/standings [conference]` — League standings (all or by conference)',
-            '`/teamstats [team]` — Full stats for a team (use abbreviation or city)',
-            '`/playerleaders [stat]` — Top players in passing, rushing, tackles, etc.',
-            '`/scores [week]` — Game scores (latest week or specify a week number)',
+            '`/standings <conference>` — Conference standings split by division',
+            '`/teamstats <team>` — Full stats, offense/defense ranks + recruiting snapshot',
+            '`/teamleaderboards <stat>` — Top 10 team stat leaderboards',
+            '`/teamschedule <team>` — Full schedule and results',
+            '`/playerleaders <stat>` — Top 10 players in any stat category',
+            '`/playerpage <player>` — Full player profile, ratings, and stats',
+            '`/scores [week]` — Game scores (latest week or specify)',
+            '`/boxscore <team> [week]` — **NEW** Single-game box score with stat leaders',
+            '`/compareteams <team1> <team2>` — Side-by-side team comparison',
+            '`/injuries <team>` — Current injuries and redshirts',
           ].join('\n'),
         },
         {
-          name: '🧢 Coach Stats',
+          name: '🧢 Coach Tools',
           value: [
-            '`/coachstats [name]` — Look up a coach\'s record from Google Sheets',
-            '',
-            'This reads your linked Google Sheet (tab: `CoachStats`).',
-            'Columns: Coach | Team | W | L | Conf_W | Conf_L | Bowl | Notes',
+            '`/coachstats <name>` — Coach resume with career record, titles, history',
+            '`/coachleaderboard [sort]` — Top coaches by formula, wins, win%, conf titles, or rings',
+            '`/contractwatch` — **NEW** Coaches available + schools without a listed coach',
+            '`/openpositions [conference]` — **NEW** Ranks open coaching jobs by attractiveness',
           ].join('\n'),
         },
         {
-          name: '📰 Reddit',
+          name: '🧢 Recruiting',
+          value: [
+            '`/recruitingclass <team>` — Upcoming recruiting class with 247 ranks',
+            '`/recruitingleaders [position]` — **NEW** Top recruits by position + commitments',
+          ].join('\n'),
+        },
+        {
+          name: '📅 Schedule & Rankings',
+          value: [
+            '`/ooc <team> [year]` — Out-of-conference schedule *(fixed double-count bug)*',
+            '`/rankhistory <team>` — **NEW** Season-long AP poll ranking history',
+            '`/valueboard [conference]` — **NEW** Team value rankings',
+          ].join('\n'),
+        },
+        {
+          name: '📰 News',
           value: [
             '`/redditnews [new|hot|top]` — Latest posts from the league subreddit',
           ].join('\n'),
         },
         {
-          name: '⚙️ Data Management',
+          name: '⚙️ Data Management (Mod Only)',
           value: [
-            '`/loadweek [file or url] [label]` — **Commissioner only**',
-            'Load a new football-gm JSON export after each weekly sim.',
-            '',
-            '**How to export from football-gm:**',
-            '1. In your league, go to Tools → Export',
-            '2. Choose "All data" and download the .json file',
-            '3. Run `/loadweek` and attach that file',
-            '4. All stat commands will update automatically',
-          ].join('\n'),
-        },
-        {
-          name: '📋 Setting up Google Sheets',
-          value: [
-            'Create a Sheet with a tab named `CoachStats`.',
-            'Row 1 must be headers: `Coach | Team | W | L | Conf_W | Conf_L | Bowl | Notes`',
-            'Make the sheet public (Viewer access) and add the Sheet ID to `.env`.',
+            '`/loadweek [file or url] [label]` — Load a new Football-GM JSON export',
           ].join('\n'),
         },
       )
-      .setFooter({ text: 'CFB League Bot  •  Built with discord.js' });
+      .setFooter({ text: 'NZCFL Bot  •  Built with discord.js' });
 
     return interaction.reply({ embeds: [embed], ephemeral: false });
   },
