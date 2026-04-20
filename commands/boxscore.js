@@ -1,6 +1,6 @@
 // ============================================================
 // commands/boxscore.js
-// Clean single-game box score for one week
+// Compact single-game box score
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -20,8 +20,6 @@ function findTeamByAbbrev(leagueData, abbrev) {
   );
 }
 
-// In your exports, game.day already corresponds to the displayed week.
-// Keeping this local avoids the off-by-one issue you already noted.
 function weekFromDay(day) {
   if (typeof day !== 'number' || Number.isNaN(day)) return null;
   return day;
@@ -62,7 +60,6 @@ function buildTeamGameLeaders(teamSide, leagueData, season, rosterByPid) {
   const tid = teamSide?.tid;
   const gamePlayers = Array.isArray(teamSide?.players) ? teamSide.players : [];
 
-  // Preferred: actual per-game box score player stats
   if (gamePlayers.length > 0) {
     const withNames = gamePlayers.map((p) => {
       const rosterPlayer = rosterByPid.get(p.pid);
@@ -92,11 +89,11 @@ function buildTeamGameLeaders(teamSide, leagueData, season, rosterByPid) {
       passer: passers[0] || null,
       rusher: rushers[0] || null,
       receiver: receivers[0] || null,
+      allPlayers: withNames,
       fromGame: true,
     };
   }
 
-  // Fallback: season totals if per-game player lines are unavailable
   const roster = (leagueData.players || []).filter((p) => p.tid === tid);
 
   const withSeasonStats = roster
@@ -121,6 +118,11 @@ function buildTeamGameLeaders(teamSide, leagueData, season, rosterByPid) {
         rec: safeNumber(stats.rec),
         recYds: safeNumber(stats.recYds),
         recTD: safeNumber(stats.recTD),
+
+        fum: safeNumber(stats.fum),
+        fumbles: safeNumber(stats.fumbles),
+        fmb: safeNumber(stats.fmb),
+        fmbLost: safeNumber(stats.fmbLost),
       };
     })
     .filter(Boolean);
@@ -141,6 +143,7 @@ function buildTeamGameLeaders(teamSide, leagueData, season, rosterByPid) {
     passer: passers[0] || null,
     rusher: rushers[0] || null,
     receiver: receivers[0] || null,
+    allPlayers: withSeasonStats,
     fromGame: false,
   };
 }
@@ -157,9 +160,9 @@ function fmtPasser(p) {
 
   const tdStr = td > 0 ? `, ${td} TD` : '';
   const intStr = ints > 0 ? `, ${ints} INT` : '';
-  const qbrStr = qbr !== null ? ` | QBR **${qbr.toFixed(1)}**` : '';
+  const qbrStr = qbr !== null ? ` | QBR ${qbr.toFixed(1)}` : '';
 
-  return `**${p.displayName || '?'}** — ${cmp}/${att}, **${yds}** yds${tdStr}${intStr}${qbrStr}`;
+  return `**${p.displayName || '?'}**\n${cmp}/${att}, **${yds}** yds${tdStr}${intStr}${qbrStr}`;
 }
 
 function fmtRusher(p) {
@@ -170,7 +173,7 @@ function fmtRusher(p) {
   const td = safeNumber(p.rusTD);
   const tdStr = td > 0 ? `, ${td} TD` : '';
 
-  return `**${p.displayName || '?'}** — ${attempts} att, **${yds}** yds${tdStr}`;
+  return `**${p.displayName || '?'}**\n${attempts} att, **${yds}** yds${tdStr}`;
 }
 
 function fmtReceiver(p) {
@@ -181,24 +184,69 @@ function fmtReceiver(p) {
   const td = safeNumber(p.recTD);
   const tdStr = td > 0 ? `, ${td} TD` : '';
 
-  return `**${p.displayName || '?'}** — ${rec} rec, **${yds}** yds${tdStr}`;
+  return `**${p.displayName || '?'}**\n${rec} rec, **${yds}** yds${tdStr}`;
 }
 
-function fmtTeamMisc(side) {
-  const tov = safeNumber(side?.tov);
+function sumPlayerInts(players) {
+  return (players || []).reduce((sum, p) => sum + safeNumber(p.pssInt), 0);
+}
+
+function getLostFumblesFromPlayers(players) {
+  let total = 0;
+
+  for (const p of players || []) {
+    const candidates = [
+      p.fmbLost,
+      p.fumLost,
+      p.fumblesLost,
+      p.fmb,
+      p.fum,
+      p.fumbles,
+    ];
+
+    const found = candidates.find((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (typeof found === 'number') total += found;
+  }
+
+  return total;
+}
+
+function computeTeamTurnovers(side, leaders) {
+  const sideTov = side?.tov;
+
+  if (typeof sideTov === 'number' && !Number.isNaN(sideTov) && sideTov > 0) {
+    return sideTov;
+  }
+
+  const playerInts = sumPlayerInts(leaders?.allPlayers || []);
+  const lostFumbles = getLostFumblesFromPlayers(leaders?.allPlayers || []);
+
+  return playerInts + lostFumbles;
+}
+
+function computePenaltyString(side) {
   const pen = safeNumber(side?.pen);
   const penYds = safeNumber(side?.penYds);
-
-  return `**Turnovers:** ${tov} • **Penalties:** ${pen}-${penYds}`;
+  return `${pen}-${penYds}`;
 }
 
-function buildTeamSection(teamName, leaders, side) {
+function buildCompactTeamBlock(leaders, side) {
+  const turnovers = computeTeamTurnovers(side, leaders);
+  const penalties = computePenaltyString(side);
+
   return [
-    `**Passing**\n${fmtPasser(leaders.passer)}`,
-    `**Rushing**\n${fmtRusher(leaders.rusher)}`,
-    `**Receiving**\n${fmtReceiver(leaders.receiver)}`,
-    `**Misc**\n${fmtTeamMisc(side)}`,
-  ].join('\n\n');
+    `**Pass**`,
+    fmtPasser(leaders.passer),
+    ``,
+    `**Rush**`,
+    fmtRusher(leaders.rusher),
+    ``,
+    `**Rec**`,
+    fmtReceiver(leaders.receiver),
+    ``,
+    `**Misc**`,
+    `TO: **${turnovers}** • Pen: **${penalties}**`,
+  ].join('\n');
 }
 
 module.exports = {
@@ -278,7 +326,7 @@ module.exports = {
 
     const game = gamesThisWeek[0];
 
-    // FBGM convention in your current code:
+    // FBGM convention in your file:
     // game.teams[0] = home
     // game.teams[1] = away
     const homeSide = game.teams?.[0];
@@ -308,31 +356,28 @@ module.exports = {
 
     const fallbackUsed = !homeLeaders.fromGame || !awayLeaders.fromGame;
 
-    const title = `W${requestedWeek} — ${awayAbbrev} ${awayPts} @ ${homePts} ${homeAbbrev}`;
-
-    const descriptionLines = [
-      `**${awayName}**`,
-      buildTeamSection(awayName, awayLeaders, awaySide),
-      '────────────────',
-      `**${homeName}**`,
-      buildTeamSection(homeName, homeLeaders, homeSide),
-    ];
-
-    if (fallbackUsed) {
-      descriptionLines.push('', '*⚠️ Per-game player stats unavailable for at least one team. Showing season-total leaders where needed.*');
-    }
-
     const embed = new EmbedBuilder()
       .setColor(requestedWon ? 0x2ecc71 : 0xe74c3c)
-      .setTitle(title)
-      .setDescription(descriptionLines.join('\n\n'))
+      .setTitle(`W${requestedWeek} • ${awayAbbrev} ${awayPts} @ ${homePts} ${homeAbbrev}`)
+      .addFields(
+        {
+          name: `${awayName}`,
+          value: buildCompactTeamBlock(awayLeaders, awaySide),
+          inline: true,
+        },
+        {
+          name: `${homeName}`,
+          value: buildCompactTeamBlock(homeLeaders, homeSide),
+          inline: true,
+        }
+      )
       .setFooter({
-        text: `Available weeks: ${availableWeeks.slice(0, 10).join(', ')}`,
+        text: `Weeks: ${availableWeeks.slice(0, 8).join(', ')}${fallbackUsed ? ' • season stat fallback used' : ''}`,
       })
       .setTimestamp();
 
-    // Discord cannot do two equal logos opposite each other in a normal embed.
-    // Using one thumbnail avoids the ugly tiny-author-icon vs larger-thumbnail mismatch.
+    // Native Discord embeds do not support two equal opposite logos.
+    // One clean thumbnail is better than the tiny author icon mismatch.
     const homeLogo = getTeamLogoUrl(homeTeam);
     if (homeLogo) {
       embed.setThumbnail(homeLogo);
