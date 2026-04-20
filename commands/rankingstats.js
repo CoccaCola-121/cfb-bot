@@ -1,6 +1,7 @@
 // ============================================================
 // commands/rankingstats.js
 // Stats-tab-only ranking summary
+// Parses the repeated mini-table layout by header names
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -27,43 +28,29 @@ function normalize(value) {
     .trim();
 }
 
-function tokenSet(value) {
-  return new Set(
-    normalize(value)
-      .split(' ')
-      .map((x) => x.trim())
-      .filter(Boolean)
-  );
-}
-
 function hasStrongTokenOverlap(a, b) {
-  const ta = tokenSet(a);
-  const tb = tokenSet(b);
-  if (!ta.size || !tb.size) return false;
+  const aa = new Set(normalize(a).split(' ').filter(Boolean));
+  const bb = new Set(normalize(b).split(' ').filter(Boolean));
+  if (!aa.size || !bb.size) return false;
 
   let overlap = 0;
-  for (const t of ta) {
-    if (tb.has(t)) overlap += 1;
+  for (const token of aa) {
+    if (bb.has(token)) overlap += 1;
   }
 
-  return overlap >= Math.min(2, ta.size, tb.size);
+  return overlap >= Math.min(2, aa.size, bb.size);
 }
 
 function teamMatchesCell(cellValue, team) {
   const cell = normalize(cellValue);
   if (!cell) return false;
 
-  const fullName = getTeamName(team);
-  const region = team?.region || '';
-  const name = team?.name || '';
-  const abbrev = team?.abbrev || '';
-
   const variants = [
-    fullName,
-    region,
-    name,
-    abbrev,
-    `${region} ${name}`.trim(),
+    team?.abbrev || '',
+    team?.region || '',
+    team?.name || '',
+    getTeamName(team),
+    `${team?.region || ''} ${team?.name || ''}`.trim(),
   ]
     .map(normalize)
     .filter(Boolean);
@@ -72,6 +59,7 @@ function teamMatchesCell(cellValue, team) {
 
   for (const v of variants) {
     if (!v) continue;
+    if (cell === v) return true;
     if (cell.includes(v) || v.includes(cell)) return true;
     if (hasStrongTokenOverlap(cell, v)) return true;
   }
@@ -106,8 +94,78 @@ function parseNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function findColumn(headers, matcher, startIndex = 0) {
+  for (let i = startIndex; i < headers.length; i++) {
+    if (matcher(headers[i], i)) return i;
+  }
+  return -1;
+}
+
+function findMetricBlocks(headers) {
+  const h = headers.map((x) => normalize(x));
+
+  const blocks = {
+    totalWeeksRanked: null,
+    consecutiveWeeksRanked: null,
+    weeksRankedNumber1: null,
+    totalWeeksTop10: null,
+    bestStreakByTeam: null,
+  };
+
+  // Find "Team/Teams" + metric columns by nearby header text
+  for (let i = 0; i < h.length; i++) {
+    const cur = h[i];
+
+    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'total weeks ranked') {
+      blocks.totalWeeksRanked = {
+        teamCol: i,
+        valueCol: i + 1,
+      };
+    }
+
+    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'consecutive weeks ranked') {
+      blocks.consecutiveWeeksRanked = {
+        teamCol: i,
+        valueCol: i + 1,
+        seasonsCol: h[i + 2] === 'seasons' ? i + 2 : -1,
+      };
+    }
+
+    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'weeks ranked 1') {
+      blocks.weeksRankedNumber1 = {
+        teamCol: i,
+        valueCol: i + 1,
+      };
+    }
+
+    if (
+      (cur === 'team' || cur === 'teams') &&
+      h[i + 1] === 'total weeks ranked in top 10'
+    ) {
+      blocks.totalWeeksTop10 = {
+        teamCol: i,
+        valueCol: i + 1,
+      };
+    }
+
+    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'best streak by team') {
+      blocks.bestStreakByTeam = {
+        teamCol: i,
+        valueCol: i + 1,
+        activeCol: h[i + 2] === 'is active' ? i + 2 : -1,
+        seasonsCol: h[i + 3] === 'seasons' ? i + 3 : -1,
+      };
+    }
+  }
+
+  return blocks;
+}
+
 function parseStatsTab(rows, team) {
   if (!Array.isArray(rows) || rows.length < 2) return null;
+
+  const headers = rows[0].map((c) => String(c || '').trim());
+  const blocks = findMetricBlocks(headers);
 
   const result = {
     totalWeeksRanked: null,
@@ -120,35 +178,60 @@ function parseStatsTab(rows, team) {
     bestStreakSeasons: null,
   };
 
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i].map((c) => String(c || '').trim());
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r].map((c) => String(c || '').trim());
 
-    // Total Weeks Ranked
-    if (teamMatchesCell(row[3], team)) {
-      result.totalWeeksRanked = parseNumber(row[4]);
+    if (
+      blocks.totalWeeksRanked &&
+      teamMatchesCell(row[blocks.totalWeeksRanked.teamCol], team)
+    ) {
+      result.totalWeeksRanked = parseNumber(row[blocks.totalWeeksRanked.valueCol]);
     }
 
-    // Consecutive Weeks Ranked
-    if (teamMatchesCell(row[9], team)) {
-      result.consecutiveWeeksRanked = parseNumber(row[10]);
-      result.consecutiveWeeksSeasons = parseNumber(row[11]);
+    if (
+      blocks.consecutiveWeeksRanked &&
+      teamMatchesCell(row[blocks.consecutiveWeeksRanked.teamCol], team)
+    ) {
+      result.consecutiveWeeksRanked = parseNumber(
+        row[blocks.consecutiveWeeksRanked.valueCol]
+      );
+      if (blocks.consecutiveWeeksRanked.seasonsCol >= 0) {
+        result.consecutiveWeeksSeasons = parseNumber(
+          row[blocks.consecutiveWeeksRanked.seasonsCol]
+        );
+      }
     }
 
-    // Weeks Ranked #1
-    if (teamMatchesCell(row[16], team)) {
-      result.weeksRankedNumber1 = parseNumber(row[17]);
+    if (
+      blocks.weeksRankedNumber1 &&
+      teamMatchesCell(row[blocks.weeksRankedNumber1.teamCol], team)
+    ) {
+      result.weeksRankedNumber1 = parseNumber(row[blocks.weeksRankedNumber1.valueCol]);
     }
 
-    // Total Weeks Ranked In Top 10
-    if (teamMatchesCell(row[22], team)) {
-      result.totalWeeksTop10 = parseNumber(row[23]);
+    if (
+      blocks.totalWeeksTop10 &&
+      teamMatchesCell(row[blocks.totalWeeksTop10.teamCol], team)
+    ) {
+      result.totalWeeksTop10 = parseNumber(row[blocks.totalWeeksTop10.valueCol]);
     }
 
-    // Best Streak by Team
-    if (teamMatchesCell(row[25], team)) {
-      result.bestStreakByTeam = parseNumber(row[26]);
-      result.bestStreakActive = String(row[27] || '').trim() || null;
-      result.bestStreakSeasons = parseNumber(row[28]);
+    if (
+      blocks.bestStreakByTeam &&
+      teamMatchesCell(row[blocks.bestStreakByTeam.teamCol], team)
+    ) {
+      result.bestStreakByTeam = parseNumber(row[blocks.bestStreakByTeam.valueCol]);
+
+      if (blocks.bestStreakByTeam.activeCol >= 0) {
+        const activeRaw = String(row[blocks.bestStreakByTeam.activeCol] || '').trim();
+        result.bestStreakActive = activeRaw || null;
+      }
+
+      if (blocks.bestStreakByTeam.seasonsCol >= 0) {
+        result.bestStreakSeasons = parseNumber(
+          row[blocks.bestStreakByTeam.seasonsCol]
+        );
+      }
     }
   }
 
@@ -190,17 +273,17 @@ module.exports = {
       return interaction.editReply(`❌ No active team with abbreviation **${abbrev}**.`);
     }
 
-    const { rows, tab } = await fetchStatsRows();
+    const { rows } = await fetchStatsRows();
     if (!rows) {
       return interaction.editReply(
-        '❌ Could not find a usable **Stats** tab on the rankings history sheet.'
+        '❌ Could not find a usable Stats tab on the rankings history sheet.'
       );
     }
 
     const stats = parseStatsTab(rows, team);
     if (!stats) {
       return interaction.editReply(
-        `❌ No ranking stats found for **${getTeamName(team)}** on tab **${tab}**.`
+        `❌ No ranking stats found for **${getTeamName(team)}**.`
       );
     }
 
