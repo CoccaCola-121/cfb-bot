@@ -9,7 +9,6 @@ const {
   getTeamMap,
   getTeamName,
   getTeamLogoUrl,
-  inferWeekFromGameDay,
   safeNumber,
   getCurrentSeason,
 } = require('../utils/data');
@@ -18,6 +17,13 @@ function findTeam(leagueData, abbrev) {
   return (leagueData.teams || []).find(
     (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === abbrev
   );
+}
+
+// Local week helper — the shared inferWeekFromGameDay adds +1 and was
+// showing "Week 12" when the file was actually at Week 11. Use `day` directly.
+function weekFromDay(day) {
+  if (typeof day !== 'number' || Number.isNaN(day)) return null;
+  return day;
 }
 
 function getLatestPosition(player) {
@@ -43,10 +49,9 @@ function buildStatLists(teamSide, leagueData, season) {
   const tid    = teamSide.tid;
   const pgPlayers = Array.isArray(teamSide.players) ? teamSide.players : [];
 
-  // Per-game player stats present (Football GM sometimes includes these)
   if (pgPlayers.length > 0) {
-    // FIXED: only match by pid. Never fall back to team-id which mapped
-    // every player to the first roster entry (hence "Ronald Barlow x3" bug).
+    // Match roster entries by pid only (no team-id fallback that caused
+    // every player to show up as the first roster entry).
     const rosterByPid = new Map(
       (leagueData.players || []).map((pl) => [pl.pid, pl])
     );
@@ -64,7 +69,6 @@ function buildStatLists(teamSide, leagueData, season) {
     };
   }
 
-  // Fall back to season totals for this team's roster
   const roster = (leagueData.players || []).filter((p) => p.tid === tid);
   const withStats = roster
     .map((p) => {
@@ -89,93 +93,26 @@ function buildStatLists(teamSide, leagueData, season) {
   };
 }
 
+// Formatters — omit TD/INT lines when value is 0
 function fmtPasser(p) {
   const cmp = p.pssCmp ?? '?', att = p.pss ?? '?';
   const qbr = computeQbRating(p);
-  const qbrStr = qbr !== null ? ` | QBR **${qbr.toFixed(1)}**` : '';
-  return `**${p.displayName || '?'}** — ${cmp}/${att}, **${p.pssYds}** yds, ${p.pssTD} TD, ${p.pssInt} INT${qbrStr}`;
+  const td  = safeNumber(p.pssTD);
+  const ints = safeNumber(p.pssInt);
+  const tdStr   = td   > 0 ? `, ${td} TD`   : '';
+  const intStr  = ints > 0 ? `, ${ints} INT` : '';
+  const qbrStr  = qbr !== null ? ` | QBR **${qbr.toFixed(1)}**` : '';
+  return `**${p.displayName || '?'}** — ${cmp}/${att}, **${p.pssYds}** yds${tdStr}${intStr}${qbrStr}`;
 }
 function fmtRusher(p) {
-  return `**${p.displayName || '?'}** — ${p.rus ?? '?'} att, **${p.rusYds}** yds, ${p.rusTD} TD`;
+  const td = safeNumber(p.rusTD);
+  const tdStr = td > 0 ? `, ${td} TD` : '';
+  return `**${p.displayName || '?'}** — ${p.rus ?? '?'} att, **${p.rusYds}** yds${tdStr}`;
 }
 function fmtReceiver(p) {
-  return `**${p.displayName || '?'}** — ${p.rec ?? '?'} rec, **${p.recYds}** yds, ${p.recTD} TD`;
-}
-
-function buildScoreLine(teamSide) {
-  const pts = teamSide.pts ?? '?';
-  const q   = teamSide.ptsQtrs;
-  if (!Array.isArray(q) || !q.length) return `**${pts}**`;
-  const labels = q.map((pt, i) => i < 4 ? `Q${i+1}: ${pt}` : `OT${i-3}: ${pt}`);
-  return `**${pts}** *(${labels.join(', ')})*`;
-}
-
-// ── Scoring summary ──────────────────────────────────────────
-//
-// FBGM games usually have a `scoringSummary` array. Each entry is a play
-// with a team index (t: 0 or 1), quarter, text, type, and sometimes clock.
-// This function pulls that out and renders a compact summary grouped by quarter.
-function buildScoringSummary(game, teamA, teamB) {
-  const summary = Array.isArray(game.scoringSummary) ? game.scoringSummary : [];
-  if (!summary.length) return null;
-
-  const teamAbbrevByIdx = [
-    (teamA?.abbrev || 'A').toUpperCase(),
-    (teamB?.abbrev || 'B').toUpperCase(),
-  ];
-
-  // Track running score per team as we walk through plays
-  let score = [0, 0];
-
-  const lines = [];
-  let lastQuarter = null;
-
-  const ordinal = (n) => {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-  };
-
-  for (const play of summary) {
-    if (play.hide) continue;
-    const tIdx   = typeof play.t === 'number' ? play.t : 0;
-    const quarter = play.quarter ?? play.qtr ?? null;
-
-    // Guess point value from the type field (FBGM standard types)
-    const type = String(play.type || '').toUpperCase();
-    let pts = 0;
-    if (type === 'TD')                       pts = 6;
-    else if (type === 'FG')                  pts = 3;
-    else if (type === 'SFT' || type === 'SAF') pts = 2;
-    else if (type === 'PAT' || type === 'XP')  pts = 1;
-    else if (type === '2PC')                 pts = 2;
-
-    if (pts > 0) score[tIdx] += pts;
-
-    if (quarter !== null && quarter !== lastQuarter) {
-      const label = quarter > 4 ? `OT${quarter - 4}` : `${ordinal(quarter)} quarter`;
-      lines.push(`\n**${label}**`);
-      lastQuarter = quarter;
-    }
-
-    const abbrev  = teamAbbrevByIdx[tIdx] || '?';
-    const typeTag = type || '—';
-    const runScore = `${score[0]}-${score[1]}`;
-    const clock   = play.clock || play.time || '';
-    const text    = String(play.text || '').trim();
-
-    const clockStr = clock ? ` *${clock}*` : '';
-    lines.push(`\`${abbrev}\` **${typeTag}** ${runScore}${clockStr} — ${text}`);
-  }
-
-  if (!lines.length) return null;
-
-  // Discord embed field max is 1024 chars; trim if needed
-  let out = lines.join('\n').trim();
-  if (out.length > 1020) {
-    out = out.slice(0, 1000).trimEnd() + '\n*…truncated*';
-  }
-  return out;
+  const td = safeNumber(p.recTD);
+  const tdStr = td > 0 ? `, ${td} TD` : '';
+  return `**${p.displayName || '?'}** — ${p.rec ?? '?'} rec, **${p.recYds}** yds${tdStr}`;
 }
 
 module.exports = {
@@ -205,16 +142,15 @@ module.exports = {
 
     const teamGames = allGames.filter((g) =>
       (g.teams || []).some((t) => t.tid === team.tid) &&
-      (g.teams || []).every((t) => typeof t.pts === 'number') // only played games
+      (g.teams || []).every((t) => typeof t.pts === 'number')
     );
 
     if (!teamGames.length)
       return interaction.editReply(`No completed games found for **${getTeamName(team)}** this season.`);
 
-    // Group by week
     const byWeek = new Map();
     for (const game of teamGames) {
-      const week = inferWeekFromGameDay(game.day);
+      const week = weekFromDay(game.day);
       if (week === null) continue;
       if (!byWeek.has(week)) byWeek.set(week, []);
       byWeek.get(week).push(game);
@@ -231,60 +167,62 @@ module.exports = {
       );
 
     const game     = games[0];
-    const teamSide = (game.teams || []).find((t) => t.tid === team.tid);
-    const oppSide  = (game.teams || []).find((t) => t.tid !== team.tid);
-    if (!teamSide || !oppSide) return interaction.editReply('❌ Malformed game data.');
+    // FBGM: game.teams[0] = home, game.teams[1] = away
+    const homeSide = game.teams?.[0];
+    const awaySide = game.teams?.[1];
+    if (!homeSide || !awaySide) return interaction.editReply('❌ Malformed game data.');
 
-    const oppTeam  = teamMap.get(oppSide.tid);
-    const teamPts  = teamSide.pts ?? '?';
-    const oppPts   = oppSide.pts  ?? '?';
-    const teamWon  = Number(teamPts) > Number(oppPts);
-    // team[0] = home in Football GM
-    const isHome   = game.teams?.[0]?.tid === team.tid;
+    const homeTeam = teamMap.get(homeSide.tid);
+    const awayTeam = teamMap.get(awaySide.tid);
 
-    const { passers, rushers, receivers, fromGame }           = buildStatLists(teamSide, leagueData, season);
-    const { passers: oPas, rushers: oRus, receivers: oRec }  = buildStatLists(oppSide,  leagueData, season);
+    const homePts = safeNumber(homeSide.pts);
+    const awayPts = safeNumber(awaySide.pts);
+
+    // Winner for the embed color — based on the requested team's result
+    const teamSide = homeSide.tid === team.tid ? homeSide : awaySide;
+    const oppSide  = homeSide.tid === team.tid ? awaySide : homeSide;
+    const teamWon  = safeNumber(teamSide.pts) > safeNumber(oppSide.pts);
+
+    const { passers,   rushers,   receivers,   fromGame } = buildStatLists(teamSide, leagueData, season);
+    const { passers: oPas, rushers: oRus, receivers: oRec } = buildStatLists(oppSide, leagueData, season);
 
     const mk = (arr, fmt, max = 3) => arr.slice(0, max).map(fmt).join('\n') || '*—*';
 
-    const noteStr = fromGame ? '' : '\n*⚠️ Per-game stats unavailable — showing season totals*';
+    const noteStr = fromGame ? '' : '*⚠️ Per-game stats unavailable — showing season totals*';
 
-    // Home team is always game.teams[0] in FBGM; match that ordering
-    // so the scoring summary's `t` indices align with teamAbbrevByIdx.
-    const teamAtIdx0 = teamMap.get(game.teams?.[0]?.tid);
-    const teamAtIdx1 = teamMap.get(game.teams?.[1]?.tid);
-    const scoringSummaryText = buildScoringSummary(game, teamAtIdx0, teamAtIdx1);
+    const homeName = getTeamName(homeTeam) || '?';
+    const awayName = getTeamName(awayTeam) || '?';
+    const teamName = getTeamName(team);
+    const oppName  = teamSide === homeSide ? awayName : homeName;
 
     const embed = new EmbedBuilder()
-      .setTitle(`🏈 Week ${requestedWeek} — ${getTeamName(team)} vs ${getTeamName(oppTeam) || '?'}`)
-      .setColor(teamWon ? 0x2ecc71 : 0xe74c3c)
-      .setDescription(
-        `${isHome ? '🏠' : '✈️'} **${getTeamName(team)}** ${teamPts}  vs  ${oppPts} **${getTeamName(oppTeam) || '?'}** ${isHome ? '✈️' : '🏠'}\n` +
-        `${getTeamName(team)} score: ${buildScoreLine(teamSide)}\n` +
-        `${getTeamName(oppTeam) || '?'} score: ${buildScoreLine(oppSide)}` +
-        noteStr
-      );
+      .setTitle(`Week ${requestedWeek} — ${awayName} ${awayPts} @ ${homePts} ${homeName}`)
+      .setColor(teamWon ? 0x2ecc71 : 0xe74c3c);
 
-    // Prepend scoring summary if available
-    if (scoringSummaryText) {
-      embed.addFields({ name: '📜 Scoring Summary', value: scoringSummaryText, inline: false });
-    }
+    if (noteStr) embed.setDescription(noteStr);
 
     embed.addFields(
-      { name: `${getTeamName(team)} — Passing`,   value: mk(passers,   fmtPasser),   inline: false },
-      { name: `${getTeamName(team)} — Rushing`,   value: mk(rushers,   fmtRusher),   inline: false },
-      { name: `${getTeamName(team)} — Receiving`, value: mk(receivers, fmtReceiver), inline: false },
-      { name: `${getTeamName(oppTeam) || '?'} — Passing`,   value: mk(oPas, fmtPasser),   inline: false },
-      { name: `${getTeamName(oppTeam) || '?'} — Rushing`,   value: mk(oRus, fmtRusher),   inline: false },
-      { name: `${getTeamName(oppTeam) || '?'} — Receiving`, value: mk(oRec, fmtReceiver), inline: false },
+      { name: `${teamName} — Passing`,   value: mk(passers,   fmtPasser),   inline: false },
+      { name: `${teamName} — Rushing`,   value: mk(rushers,   fmtRusher),   inline: false },
+      { name: `${teamName} — Receiving`, value: mk(receivers, fmtReceiver), inline: false },
+      { name: `${oppName} — Passing`,    value: mk(oPas, fmtPasser),        inline: false },
+      { name: `${oppName} — Rushing`,    value: mk(oRus, fmtRusher),        inline: false },
+      { name: `${oppName} — Receiving`,  value: mk(oRec, fmtReceiver),      inline: false },
     );
 
     embed
       .setFooter({ text: `Week ${requestedWeek} • Available weeks: ${availWeeks.slice(0, 10).join(', ')}` })
       .setTimestamp();
 
-    const logo = getTeamLogoUrl(team);
-    if (logo) embed.setThumbnail(logo);
+    // Both team logos: author icon = away team, thumbnail = home team
+    const homeLogo = getTeamLogoUrl(homeTeam);
+    const awayLogo = getTeamLogoUrl(awayTeam);
+    if (awayLogo) {
+      embed.setAuthor({ name: awayName, iconURL: awayLogo });
+    }
+    if (homeLogo) {
+      embed.setThumbnail(homeLogo);
+    }
 
     return interaction.editReply({ embeds: [embed] });
   },
