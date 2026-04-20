@@ -1,8 +1,7 @@
 // ============================================================
 // commands/rankhistory.js
-// Reads directly from the real Rankings History sheet layouts:
-// - Historical Data
-// - Stats
+// Stats-tab-only version
+// Pulls all-time ranking summary data from the Rankings History sheet
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -44,173 +43,100 @@ function teamMatchesCell(cellValue, team) {
   for (const v of variants) {
     if (!v) continue;
     if (cell === v) return true;
-    if (cell.includes(v) && v.length >= 5) return true;
-    if (v.includes(cell) && cell.length >= 5) return true;
+    if (cell.includes(v) && v.length >= 4) return true;
+    if (v.includes(cell) && cell.length >= 4) return true;
   }
 
   return false;
 }
 
-async function fetchFirstWorkingTab(sheetId, tabs) {
-  for (const tab of tabs) {
+async function fetchStatsRows() {
+  const tabsToTry = [
+    'Stats',
+    'Rankings History - Stats',
+    'Ranking Stats',
+    'Historical Stats',
+  ];
+
+  for (const tab of tabsToTry) {
     try {
-      const rows = await fetchSheetCsv(sheetId, tab);
-      if (Array.isArray(rows) && rows.length > 0) {
+      const rows = await fetchSheetCsv(SHEET_ID, tab);
+      if (Array.isArray(rows) && rows.length > 1) {
         return { rows, tab };
       }
     } catch {
       // try next
     }
   }
+
   return { rows: null, tab: '' };
-}
-
-function parseHistoricalData(rows) {
-  if (!Array.isArray(rows) || rows.length < 2) return [];
-
-  const header = rows[0].map((c) => String(c || '').trim());
-  const timelineCol = header.findIndex((h) => h.toLowerCase() === 'timeline');
-
-  if (timelineCol === -1) return [];
-
-  const entries = [];
-
-  for (let col = timelineCol + 1; col < header.length; col++) {
-    const rawHeader = String(header[col] || '').trim();
-    if (!rawHeader) continue;
-
-    const seasonMatch = rawHeader.match(/\b(20\d{2})\b/);
-    if (!seasonMatch) continue;
-
-    const season = Number(seasonMatch[1]);
-    const period = rawHeader.replace(String(season), '').trim();
-
-    for (let row = 1; row < rows.length; row++) {
-      const rankRaw = String(rows[row][timelineCol] || '').trim();
-      const teamRaw = String(rows[row][col] || '').trim();
-
-      if (!/^\d+$/.test(rankRaw)) continue;
-      if (!teamRaw) continue;
-
-      entries.push({
-        season,
-        period,
-        rank: Number(rankRaw),
-        team: teamRaw,
-        colIndex: col,
-      });
-    }
-  }
-
-  return entries;
-}
-
-function sortSeasonEntries(entries) {
-  return [...entries].sort((a, b) => {
-    if (a.colIndex !== b.colIndex) return a.colIndex - b.colIndex;
-    return a.rank - b.rank;
-  });
-}
-
-function computeSummaryFromHistorical(entries) {
-  const sorted = sortSeasonEntries(entries);
-
-  let bestStreak = 0;
-  let currentStreak = 0;
-  let prevCol = null;
-
-  for (const e of sorted) {
-    if (prevCol === null || e.colIndex === prevCol + 1) {
-      currentStreak += 1;
-    } else {
-      currentStreak = 1;
-    }
-    if (currentStreak > bestStreak) bestStreak = currentStreak;
-    prevCol = e.colIndex;
-  }
-
-  return {
-    totalWeeksRanked: entries.length,
-    weeksAtNumber1: entries.filter((e) => e.rank === 1).length,
-    weeksTop10: entries.filter((e) => e.rank <= 10).length,
-    peakRank: entries.length ? Math.min(...entries.map((e) => e.rank)) : null,
-    bestStreak,
-  };
 }
 
 function parseStatsTab(rows, team) {
   if (!Array.isArray(rows) || rows.length < 2) return null;
 
-  const stats = {
+  const result = {
     totalWeeksRanked: null,
     consecutiveWeeksRanked: null,
-    consecutiveWeeksSeasons: null,
+    consecutiveWeeksSeasons: '',
     weeksRankedNumber1: null,
     totalWeeksTop10: null,
     bestStreakByTeam: null,
-    bestStreakActive: null,
-    bestStreakSeasons: null,
+    bestStreakActive: '',
+    bestStreakSeasons: '',
   };
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i].map((c) => String(c || '').trim());
 
+    // Block 1: Total Weeks Ranked
+    // cols: 3=team, 4=value
     if (teamMatchesCell(row[3], team)) {
-      stats.totalWeeksRanked = Number(row[4]) || null;
+      result.totalWeeksRanked = Number(row[4]) || 0;
     }
 
+    // Block 2: Consecutive Weeks Ranked
+    // cols: 9=team, 10=value, 11=seasons
     if (teamMatchesCell(row[9], team)) {
-      stats.consecutiveWeeksRanked = Number(row[10]) || null;
-      stats.consecutiveWeeksSeasons = row[11] || null;
+      result.consecutiveWeeksRanked = Number(row[10]) || 0;
+      result.consecutiveWeeksSeasons = row[11] || '';
     }
 
+    // Block 3: Weeks Ranked #1
+    // cols: 16=team, 17=value
     if (teamMatchesCell(row[16], team)) {
-      stats.weeksRankedNumber1 = Number(row[17]) || null;
+      result.weeksRankedNumber1 = Number(row[17]) || 0;
     }
 
+    // Block 4: Total Weeks Ranked In Top 10
+    // cols: 22=team, 23=value
     if (teamMatchesCell(row[22], team)) {
-      stats.totalWeeksTop10 = Number(row[23]) || null;
+      result.totalWeeksTop10 = Number(row[23]) || 0;
     }
 
+    // Block 5: Best Streak by Team
+    // cols: 25=team, 26=value, 27=active, 28=seasons
     if (teamMatchesCell(row[25], team)) {
-      stats.bestStreakByTeam = Number(row[26]) || null;
-      stats.bestStreakActive = row[27] || null;
-      stats.bestStreakSeasons = row[28] || null;
+      result.bestStreakByTeam = Number(row[26]) || 0;
+      result.bestStreakActive = row[27] || '';
+      result.bestStreakSeasons = row[28] || '';
     }
   }
 
-  return stats;
-}
+  const foundAnything =
+    result.totalWeeksRanked !== null ||
+    result.consecutiveWeeksRanked !== null ||
+    result.weeksRankedNumber1 !== null ||
+    result.totalWeeksTop10 !== null ||
+    result.bestStreakByTeam !== null;
 
-function mergeSummary(historicalSummary, statsSummary) {
-  if (!statsSummary) return historicalSummary;
-
-  return {
-    totalWeeksRanked:
-      statsSummary.totalWeeksRanked ?? historicalSummary.totalWeeksRanked,
-    weeksAtNumber1:
-      statsSummary.weeksRankedNumber1 ?? historicalSummary.weeksAtNumber1,
-    weeksTop10:
-      statsSummary.totalWeeksTop10 ?? historicalSummary.weeksTop10,
-    peakRank:
-      historicalSummary.peakRank,
-    bestStreak:
-      statsSummary.bestStreakByTeam ?? historicalSummary.bestStreak,
-    bestStreakActive:
-      statsSummary.bestStreakActive || '',
-    bestStreakSeasons:
-      statsSummary.bestStreakSeasons || '',
-    consecutiveWeeksRanked:
-      statsSummary.consecutiveWeeksRanked,
-    consecutiveWeeksSeasons:
-      statsSummary.consecutiveWeeksSeasons || '',
-  };
+  return foundAnything ? result : null;
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('rankhistory')
-    .setDescription("Show a team's AP poll ranking history")
+    .setDescription("Show a team's ranking history summary")
     .addStringOption((opt) =>
       opt
         .setName('team')
@@ -220,7 +146,7 @@ module.exports = {
     .addIntegerOption((opt) =>
       opt
         .setName('season')
-        .setDescription('Season year (default: current)')
+        .setDescription('Unused for stats-only version')
         .setRequired(false)
     ),
 
@@ -242,141 +168,77 @@ module.exports = {
     }
 
     const currentSeason = Number(getCurrentSeason(leagueData));
-    const targetSeason = interaction.options.getInteger('season') || currentSeason;
 
-    const historicalFetch = await fetchFirstWorkingTab(SHEET_ID, [
-      'Historical Data',
-      'Rankings History - Historical Data',
-      'Historical',
-      'History',
-    ]);
-
-    if (!historicalFetch.rows) {
+    const { rows, tab } = await fetchStatsRows();
+    if (!rows) {
       return interaction.editReply(
-        '❌ Could not find a usable **Historical Data** tab.'
+        '❌ Could not find a usable **Stats** tab on the rankings history sheet.'
       );
     }
 
-    const allHistoricalEntries = parseHistoricalData(historicalFetch.rows);
-    if (!allHistoricalEntries.length) {
+    const stats = parseStatsTab(rows, team);
+    if (!stats) {
       return interaction.editReply(
-        `❌ Could not parse ranking data from tab **${historicalFetch.tab}**.`
+        `❌ No ranking stats found for **${getTeamName(team)}** on tab **${tab}**.`
       );
     }
-
-    const teamAllEntries = allHistoricalEntries.filter((e) => teamMatchesCell(e.team, team));
-    if (!teamAllEntries.length) {
-      return interaction.editReply(
-        `**${getTeamName(team)}** does not appear in the historical rankings data.`
-      );
-    }
-
-    const teamSeasonEntries = sortSeasonEntries(
-      teamAllEntries.filter((e) => e.season === targetSeason)
-    );
-
-    if (!teamSeasonEntries.length) {
-      return interaction.editReply(
-        `**${getTeamName(team)}** has no rankings logged for **${targetSeason}**.`
-      );
-    }
-
-    const historicalSummary = computeSummaryFromHistorical(teamAllEntries);
-
-    const statsFetch = await fetchFirstWorkingTab(SHEET_ID, [
-      'Stats',
-      'Rankings History - Stats',
-      'Ranking Stats',
-    ]);
-
-    const statsSummary = statsFetch.rows ? parseStatsTab(statsFetch.rows, team) : null;
-    const summary = mergeSummary(historicalSummary, statsSummary);
-
-    const peakThisSeason = Math.min(...teamSeasonEntries.map((e) => e.rank));
-    const latestRank = teamSeasonEntries[teamSeasonEntries.length - 1]?.rank ?? null;
-
-    const lines = teamSeasonEntries.map((e) => {
-      const emoji =
-        e.rank === 1 ? '🥇' :
-        e.rank <= 5 ? '🔥' :
-        e.rank <= 10 ? '📈' :
-        '📊';
-
-      return `${emoji} **${e.period}:** #${e.rank}`;
-    });
 
     const embed = new EmbedBuilder()
-      .setTitle(`📊 ${getTeamName(team)} — ${targetSeason} Rankings`)
+      .setTitle(`📊 ${getTeamName(team)} — Ranking History`)
       .setColor(0xf39c12)
-      .setDescription(lines.join('\n'))
       .addFields(
         {
-          name: 'Peak This Season',
-          value: `**#${peakThisSeason}**`,
-          inline: true,
-        },
-        {
-          name: 'Times Ranked This Season',
-          value: `**${teamSeasonEntries.length}**`,
-          inline: true,
-        },
-        {
-          name: 'Latest Rank',
-          value: latestRank ? `**#${latestRank}**` : '—',
-          inline: true,
-        },
-        {
           name: 'All-Time Weeks Ranked',
-          value: `**${summary.totalWeeksRanked ?? 0}**`,
+          value: `**${stats.totalWeeksRanked ?? 0}**`,
           inline: true,
         },
         {
           name: 'All-Time Weeks at #1',
-          value: `**${summary.weeksAtNumber1 ?? 0}**`,
+          value: `**${stats.weeksRankedNumber1 ?? 0}**`,
           inline: true,
         },
         {
           name: 'All-Time Weeks in Top 10',
-          value: `**${summary.weeksTop10 ?? 0}**`,
+          value: `**${stats.totalWeeksTop10 ?? 0}**`,
+          inline: true,
+        },
+        {
+          name: 'Best Streak by Team',
+          value: `**${stats.bestStreakByTeam ?? 0}**`,
+          inline: true,
+        },
+        {
+          name: 'Best Streak Active?',
+          value: `**${stats.bestStreakActive || '—'}**`,
+          inline: true,
+        },
+        {
+          name: 'Best Streak Seasons',
+          value: stats.bestStreakSeasons
+            ? `**${stats.bestStreakSeasons}**`
+            : '—',
+          inline: true,
+        },
+        {
+          name: 'Consecutive Weeks Ranked',
+          value: `**${stats.consecutiveWeeksRanked ?? 0}**`,
+          inline: true,
+        },
+        {
+          name: 'Consecutive Weeks Seasons',
+          value: stats.consecutiveWeeksSeasons
+            ? `**${stats.consecutiveWeeksSeasons}**`
+            : '—',
+          inline: true,
+        },
+        {
+          name: 'Season',
+          value: `**${currentSeason}**`,
           inline: true,
         }
       )
-      .setFooter({
-        text:
-          `History: ${historicalFetch.tab}` +
-          (statsFetch.rows ? ` • Stats: ${statsFetch.tab}` : ''),
-      })
+      .setFooter({ text: `Stats from tab: ${tab}` })
       .setTimestamp();
-
-    if (summary.bestStreak) {
-      let streakLine = `**${summary.bestStreak}**`;
-
-      if (summary.bestStreakActive) {
-        streakLine += ` • Active: **${summary.bestStreakActive}**`;
-      }
-      if (summary.bestStreakSeasons) {
-        streakLine += ` • Seasons: **${summary.bestStreakSeasons}**`;
-      }
-
-      embed.addFields({
-        name: 'Best Streak by Team',
-        value: streakLine,
-        inline: false,
-      });
-    }
-
-    if (summary.consecutiveWeeksRanked) {
-      let line = `**${summary.consecutiveWeeksRanked}**`;
-      if (summary.consecutiveWeeksSeasons) {
-        line += ` • Seasons: **${summary.consecutiveWeeksSeasons}**`;
-      }
-
-      embed.addFields({
-        name: 'Consecutive Weeks Ranked',
-        value: line,
-        inline: false,
-      });
-    }
 
     const logo = getTeamLogoUrl(team);
     if (logo) {
