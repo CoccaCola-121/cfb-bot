@@ -9,7 +9,6 @@ const {
   getGamesForCurrentSeason,
   getTeamMap,
   getTeamName,
-  getTeamLogoUrl,
   safeNumber,
   getCurrentSeason,
 } = require('../utils/data');
@@ -149,7 +148,7 @@ function buildTeamGameLeaders(teamSide, leagueData, season, rosterByPid) {
 }
 
 function fmtPasser(p) {
-  if (!p) return '*—*';
+  if (!p) return 'QB: *—*';
 
   const cmp = p.pssCmp ?? '?';
   const att = p.pss ?? '?';
@@ -162,29 +161,29 @@ function fmtPasser(p) {
   const intStr = ints > 0 ? `, ${ints} INT` : '';
   const qbrStr = qbr !== null ? ` | QBR ${qbr.toFixed(1)}` : '';
 
-  return `**${p.displayName || '?'}**\n${cmp}/${att}, **${yds}** yds${tdStr}${intStr}${qbrStr}`;
+  return `QB: **${p.displayName || '?'}** — ${cmp}/${att}, **${yds}** yds${tdStr}${intStr}${qbrStr}`;
 }
 
 function fmtRusher(p) {
-  if (!p) return '*—*';
+  if (!p) return 'Rush: *—*';
 
   const attempts = safeNumber(p.rus);
   const yds = safeNumber(p.rusYds);
   const td = safeNumber(p.rusTD);
   const tdStr = td > 0 ? `, ${td} TD` : '';
 
-  return `**${p.displayName || '?'}**\n${attempts} att, **${yds}** yds${tdStr}`;
+  return `Rush: **${p.displayName || '?'}** — ${attempts} att, **${yds}** yds${tdStr}`;
 }
 
 function fmtReceiver(p) {
-  if (!p) return '*—*';
+  if (!p) return 'Rec: *—*';
 
   const rec = safeNumber(p.rec);
   const yds = safeNumber(p.recYds);
   const td = safeNumber(p.recTD);
   const tdStr = td > 0 ? `, ${td} TD` : '';
 
-  return `**${p.displayName || '?'}**\n${rec} rec, **${yds}** yds${tdStr}`;
+  return `Rec: **${p.displayName || '?'}** — ${rec} rec, **${yds}** yds${tdStr}`;
 }
 
 function sumPlayerInts(players) {
@@ -214,7 +213,7 @@ function getLostFumblesFromPlayers(players) {
 function computeTeamTurnovers(side, leaders) {
   const sideTov = side?.tov;
 
-  if (typeof sideTov === 'number' && !Number.isNaN(sideTov) && sideTov > 0) {
+  if (typeof sideTov === 'number' && !Number.isNaN(sideTov) && sideTov >= 0) {
     return sideTov;
   }
 
@@ -230,22 +229,16 @@ function computePenaltyString(side) {
   return `${pen}-${penYds}`;
 }
 
-function buildCompactTeamBlock(leaders, side) {
+function buildCompactTeamBlock(teamName, leaders, side) {
   const turnovers = computeTeamTurnovers(side, leaders);
   const penalties = computePenaltyString(side);
 
   return [
-    `**Pass**`,
+    `**${teamName}**`,
     fmtPasser(leaders.passer),
-    ``,
-    `**Rush**`,
     fmtRusher(leaders.rusher),
-    ``,
-    `**Rec**`,
     fmtReceiver(leaders.receiver),
-    ``,
-    `**Misc**`,
-    `TO: **${turnovers}** • Pen: **${penalties}**`,
+    `Misc: TO **${turnovers}** • Pen **${penalties}**`,
   ].join('\n');
 }
 
@@ -341,8 +334,6 @@ module.exports = {
 
     const homeName = getTeamName(homeTeam) || 'Home';
     const awayName = getTeamName(awayTeam) || 'Away';
-    const homeAbbrev = String(homeTeam?.abbrev || 'HOME').toUpperCase();
-    const awayAbbrev = String(awayTeam?.abbrev || 'AWAY').toUpperCase();
 
     const homePts = safeNumber(homeSide.pts);
     const awayPts = safeNumber(awaySide.pts);
@@ -358,16 +349,16 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(requestedWon ? 0x2ecc71 : 0xe74c3c)
-      .setTitle(`W${requestedWeek} • ${awayAbbrev} ${awayPts} @ ${homePts} ${homeAbbrev}`)
+      .setTitle(`Week ${requestedWeek} • ${awayName} ${awayPts} @ ${homePts} ${homeName}`)
       .addFields(
         {
-          name: `${awayName}`,
-          value: buildCompactTeamBlock(awayLeaders, awaySide),
+          name: '\u200B',
+          value: buildCompactTeamBlock(awayName, awayLeaders, awaySide),
           inline: true,
         },
         {
-          name: `${homeName}`,
-          value: buildCompactTeamBlock(homeLeaders, homeSide),
+          name: '\u200B',
+          value: buildCompactTeamBlock(homeName, homeLeaders, homeSide),
           inline: true,
         }
       )
@@ -375,13 +366,6 @@ module.exports = {
         text: `Weeks: ${availableWeeks.slice(0, 8).join(', ')}${fallbackUsed ? ' • season stat fallback used' : ''}`,
       })
       .setTimestamp();
-
-    // Native Discord embeds do not support two equal opposite logos.
-    // One clean thumbnail is better than the tiny author icon mismatch.
-    const homeLogo = getTeamLogoUrl(homeTeam);
-    if (homeLogo) {
-      embed.setThumbnail(homeLogo);
-    }
 
     return interaction.editReply({ embeds: [embed] });
   },
