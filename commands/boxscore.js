@@ -45,8 +45,13 @@ function buildStatLists(teamSide, leagueData, season) {
 
   // Per-game player stats present (Football GM sometimes includes these)
   if (pgPlayers.length > 0) {
+    // FIXED: only match by pid. Never fall back to team-id which mapped
+    // every player to the first roster entry (hence "Ronald Barlow x3" bug).
+    const rosterByPid = new Map(
+      (leagueData.players || []).map((pl) => [pl.pid, pl])
+    );
     const mapName = (p) => {
-      const roster = (leagueData.players || []).find((pl) => pl.pid === p.pid || pl.tid === tid);
+      const roster = rosterByPid.get(p.pid);
       if (roster) return `${roster.firstName || ''} ${roster.lastName || ''}`.trim();
       return `Player ${p.pid ?? '?'}`;
     };
@@ -103,6 +108,74 @@ function buildScoreLine(teamSide) {
   if (!Array.isArray(q) || !q.length) return `**${pts}**`;
   const labels = q.map((pt, i) => i < 4 ? `Q${i+1}: ${pt}` : `OT${i-3}: ${pt}`);
   return `**${pts}** *(${labels.join(', ')})*`;
+}
+
+// ── Scoring summary ──────────────────────────────────────────
+//
+// FBGM games usually have a `scoringSummary` array. Each entry is a play
+// with a team index (t: 0 or 1), quarter, text, type, and sometimes clock.
+// This function pulls that out and renders a compact summary grouped by quarter.
+function buildScoringSummary(game, teamA, teamB) {
+  const summary = Array.isArray(game.scoringSummary) ? game.scoringSummary : [];
+  if (!summary.length) return null;
+
+  const teamAbbrevByIdx = [
+    (teamA?.abbrev || 'A').toUpperCase(),
+    (teamB?.abbrev || 'B').toUpperCase(),
+  ];
+
+  // Track running score per team as we walk through plays
+  let score = [0, 0];
+
+  const lines = [];
+  let lastQuarter = null;
+
+  const ordinal = (n) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
+  for (const play of summary) {
+    if (play.hide) continue;
+    const tIdx   = typeof play.t === 'number' ? play.t : 0;
+    const quarter = play.quarter ?? play.qtr ?? null;
+
+    // Guess point value from the type field (FBGM standard types)
+    const type = String(play.type || '').toUpperCase();
+    let pts = 0;
+    if (type === 'TD')                       pts = 6;
+    else if (type === 'FG')                  pts = 3;
+    else if (type === 'SFT' || type === 'SAF') pts = 2;
+    else if (type === 'PAT' || type === 'XP')  pts = 1;
+    else if (type === '2PC')                 pts = 2;
+
+    if (pts > 0) score[tIdx] += pts;
+
+    if (quarter !== null && quarter !== lastQuarter) {
+      const label = quarter > 4 ? `OT${quarter - 4}` : `${ordinal(quarter)} quarter`;
+      lines.push(`\n**${label}**`);
+      lastQuarter = quarter;
+    }
+
+    const abbrev  = teamAbbrevByIdx[tIdx] || '?';
+    const typeTag = type || '—';
+    const runScore = `${score[0]}-${score[1]}`;
+    const clock   = play.clock || play.time || '';
+    const text    = String(play.text || '').trim();
+
+    const clockStr = clock ? ` *${clock}*` : '';
+    lines.push(`\`${abbrev}\` **${typeTag}** ${runScore}${clockStr} — ${text}`);
+  }
+
+  if (!lines.length) return null;
+
+  // Discord embed field max is 1024 chars; trim if needed
+  let out = lines.join('\n').trim();
+  if (out.length > 1020) {
+    out = out.slice(0, 1000).trimEnd() + '\n*…truncated*';
+  }
+  return out;
 }
 
 module.exports = {
@@ -176,6 +249,12 @@ module.exports = {
 
     const noteStr = fromGame ? '' : '\n*⚠️ Per-game stats unavailable — showing season totals*';
 
+    // Home team is always game.teams[0] in FBGM; match that ordering
+    // so the scoring summary's `t` indices align with teamAbbrevByIdx.
+    const teamAtIdx0 = teamMap.get(game.teams?.[0]?.tid);
+    const teamAtIdx1 = teamMap.get(game.teams?.[1]?.tid);
+    const scoringSummaryText = buildScoringSummary(game, teamAtIdx0, teamAtIdx1);
+
     const embed = new EmbedBuilder()
       .setTitle(`🏈 Week ${requestedWeek} — ${getTeamName(team)} vs ${getTeamName(oppTeam) || '?'}`)
       .setColor(teamWon ? 0x2ecc71 : 0xe74c3c)
@@ -184,15 +263,23 @@ module.exports = {
         `${getTeamName(team)} score: ${buildScoreLine(teamSide)}\n` +
         `${getTeamName(oppTeam) || '?'} score: ${buildScoreLine(oppSide)}` +
         noteStr
-      )
-      .addFields(
-        { name: `${getTeamName(team)} — Passing`,   value: mk(passers,   fmtPasser),   inline: false },
-        { name: `${getTeamName(team)} — Rushing`,   value: mk(rushers,   fmtRusher),   inline: false },
-        { name: `${getTeamName(team)} — Receiving`, value: mk(receivers, fmtReceiver), inline: false },
-        { name: `${getTeamName(oppTeam) || '?'} — Passing`,   value: mk(oPas, fmtPasser),   inline: false },
-        { name: `${getTeamName(oppTeam) || '?'} — Rushing`,   value: mk(oRus, fmtRusher),   inline: false },
-        { name: `${getTeamName(oppTeam) || '?'} — Receiving`, value: mk(oRec, fmtReceiver), inline: false },
-      )
+      );
+
+    // Prepend scoring summary if available
+    if (scoringSummaryText) {
+      embed.addFields({ name: '📜 Scoring Summary', value: scoringSummaryText, inline: false });
+    }
+
+    embed.addFields(
+      { name: `${getTeamName(team)} — Passing`,   value: mk(passers,   fmtPasser),   inline: false },
+      { name: `${getTeamName(team)} — Rushing`,   value: mk(rushers,   fmtRusher),   inline: false },
+      { name: `${getTeamName(team)} — Receiving`, value: mk(receivers, fmtReceiver), inline: false },
+      { name: `${getTeamName(oppTeam) || '?'} — Passing`,   value: mk(oPas, fmtPasser),   inline: false },
+      { name: `${getTeamName(oppTeam) || '?'} — Rushing`,   value: mk(oRus, fmtRusher),   inline: false },
+      { name: `${getTeamName(oppTeam) || '?'} — Receiving`, value: mk(oRec, fmtReceiver), inline: false },
+    );
+
+    embed
       .setFooter({ text: `Week ${requestedWeek} • Available weeks: ${availWeeks.slice(0, 10).join(', ')}` })
       .setTimestamp();
 
