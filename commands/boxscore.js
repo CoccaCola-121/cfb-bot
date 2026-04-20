@@ -362,9 +362,6 @@ module.exports = {
           inline: true,
         }
       )
-      .setFooter({
-        text: `Weeks: ${availableWeeks.slice(0, 8).join(', ')}${fallbackUsed ? ' • season stat fallback used' : ''}`,
-      })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });
