@@ -1,7 +1,7 @@
 // ============================================================
 // commands/rankingstats.js
 // Stats-tab-only ranking summary
-// Parses the repeated mini-table layout by header names
+// Parses 5 side-by-side mini-tables with spacer columns between them
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -17,6 +17,8 @@ const SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||
   process.env.GOOGLE_SHEET_ID ||
   '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
+
+// ---------- helpers ----------
 
 function normalize(value) {
   return String(value || '')
@@ -37,7 +39,6 @@ function hasStrongTokenOverlap(a, b) {
   for (const token of aa) {
     if (bb.has(token)) overlap += 1;
   }
-
   return overlap >= Math.min(2, aa.size, bb.size);
 }
 
@@ -67,6 +68,15 @@ function teamMatchesCell(cellValue, team) {
   return false;
 }
 
+function parseNumber(value) {
+  const s = String(value || '').trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+// ---------- sheet loading ----------
+
 async function fetchStatsRows() {
   const tabsToTry = [
     'Stats',
@@ -89,20 +99,50 @@ async function fetchStatsRows() {
   return { rows: null, tab: '' };
 }
 
-function parseNumber(value) {
-  const n = Number(String(value || '').trim());
-  return Number.isFinite(n) ? n : null;
-}
+// ---------- layout parsing ----------
 
-function findColumn(headers, matcher, startIndex = 0) {
-  for (let i = startIndex; i < headers.length; i++) {
-    if (matcher(headers[i], i)) return i;
+/**
+ * Find the row index containing the header row.
+ * The first row that has any "team" / "teams" cell is treated as the header row.
+ */
+function findHeaderRowIndex(rows) {
+  const limit = Math.min(rows.length, 20);
+  for (let r = 0; r < limit; r++) {
+    const norm = rows[r].map((c) => normalize(c));
+    if (norm.some((c) => c === 'team' || c === 'teams')) return r;
   }
-  return -1;
+  return 0;
 }
 
+/**
+ * Scan headers and identify 5 metric blocks.
+ * For each known metric header, walk LEFT to find the nearest "team"/"teams" column.
+ * For modifier columns (Seasons, Is Active?), look a few columns to the RIGHT of the metric.
+ */
 function findMetricBlocks(headers) {
-  const h = headers.map((x) => normalize(x));
+  const h = headers.map(normalize);
+
+  // All columns where a "team" / "teams" header appears
+  const teamCols = [];
+  for (let i = 0; i < h.length; i++) {
+    if (h[i] === 'team' || h[i] === 'teams') teamCols.push(i);
+  }
+
+  const nearestTeamColLeft = (col) => {
+    let best = -1;
+    for (const tc of teamCols) {
+      if (tc < col && tc > best) best = tc;
+    }
+    return best;
+  };
+
+  const findHeaderRight = (startCol, matcher, windowCols = 4) => {
+    const end = Math.min(startCol + windowCols, h.length - 1);
+    for (let j = startCol + 1; j <= end; j++) {
+      if (matcher(h[j])) return j;
+    }
+    return -1;
+  };
 
   const blocks = {
     totalWeeksRanked: null,
@@ -112,59 +152,62 @@ function findMetricBlocks(headers) {
     bestStreakByTeam: null,
   };
 
-  // Find "Team/Teams" + metric columns by nearby header text
   for (let i = 0; i < h.length; i++) {
     const cur = h[i];
+    if (!cur) continue;
 
-    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'total weeks ranked') {
-      blocks.totalWeeksRanked = {
-        teamCol: i,
-        valueCol: i + 1,
-      };
+    const tc = nearestTeamColLeft(i);
+    if (tc < 0) continue;
+
+    // Total Weeks Ranked
+    if (cur === 'total weeks ranked') {
+      blocks.totalWeeksRanked = { teamCol: tc, valueCol: i };
+      continue;
     }
 
-    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'consecutive weeks ranked') {
-      blocks.consecutiveWeeksRanked = {
-        teamCol: i,
-        valueCol: i + 1,
-        seasonsCol: h[i + 2] === 'seasons' ? i + 2 : -1,
-      };
+    // Total Weeks Ranked In Top 10  (check BEFORE plain "total weeks ranked" would match)
+    if (cur === 'total weeks ranked in top 10' || cur.includes('top 10')) {
+      blocks.totalWeeksTop10 = { teamCol: tc, valueCol: i };
+      continue;
     }
 
-    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'weeks ranked 1') {
-      blocks.weeksRankedNumber1 = {
-        teamCol: i,
-        valueCol: i + 1,
-      };
+    // Consecutive Weeks Ranked (+ Seasons)
+    if (cur === 'consecutive weeks ranked') {
+      const seasonsCol = findHeaderRight(i, (x) => x === 'seasons', 2);
+      blocks.consecutiveWeeksRanked = { teamCol: tc, valueCol: i, seasonsCol };
+      continue;
     }
 
-    if (
-      (cur === 'team' || cur === 'teams') &&
-      h[i + 1] === 'total weeks ranked in top 10'
-    ) {
-      blocks.totalWeeksTop10 = {
-        teamCol: i,
-        valueCol: i + 1,
-      };
+    // Weeks Ranked #1  (normalized: "weeks ranked 1")
+    if (cur === 'weeks ranked 1') {
+      blocks.weeksRankedNumber1 = { teamCol: tc, valueCol: i };
+      continue;
     }
 
-    if ((cur === 'team' || cur === 'teams') && h[i + 1] === 'best streak by team') {
+    // Best Streak by Team (+ Is Active? + Seasons)
+    if (cur === 'best streak by team') {
+      const activeCol = findHeaderRight(i, (x) => x === 'is active', 3);
+      const seasonsCol = findHeaderRight(i, (x) => x === 'seasons', 4);
       blocks.bestStreakByTeam = {
-        teamCol: i,
-        valueCol: i + 1,
-        activeCol: h[i + 2] === 'is active' ? i + 2 : -1,
-        seasonsCol: h[i + 3] === 'seasons' ? i + 3 : -1,
+        teamCol: tc,
+        valueCol: i,
+        activeCol,
+        seasonsCol,
       };
+      continue;
     }
   }
 
   return blocks;
 }
 
+// ---------- row parsing ----------
+
 function parseStatsTab(rows, team) {
   if (!Array.isArray(rows) || rows.length < 2) return null;
 
-  const headers = rows[0].map((c) => String(c || '').trim());
+  const headerRowIdx = findHeaderRowIndex(rows);
+  const headers = rows[headerRowIdx].map((c) => String(c || '').trim());
   const blocks = findMetricBlocks(headers);
 
   const result = {
@@ -178,18 +221,27 @@ function parseStatsTab(rows, team) {
     bestStreakSeasons: null,
   };
 
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r].map((c) => String(c || '').trim());
+  // Since each block is its own ranked list, a team's row varies by block.
+  // Walk EVERY data row and check each block independently.
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const rawRow = rows[r] || [];
+    const row = rawRow.map((c) => String(c || '').trim());
 
+    // Total Weeks Ranked
     if (
       blocks.totalWeeksRanked &&
+      result.totalWeeksRanked === null &&
       teamMatchesCell(row[blocks.totalWeeksRanked.teamCol], team)
     ) {
-      result.totalWeeksRanked = parseNumber(row[blocks.totalWeeksRanked.valueCol]);
+      result.totalWeeksRanked = parseNumber(
+        row[blocks.totalWeeksRanked.valueCol]
+      );
     }
 
+    // Consecutive Weeks Ranked
     if (
       blocks.consecutiveWeeksRanked &&
+      result.consecutiveWeeksRanked === null &&
       teamMatchesCell(row[blocks.consecutiveWeeksRanked.teamCol], team)
     ) {
       result.consecutiveWeeksRanked = parseNumber(
@@ -202,29 +254,49 @@ function parseStatsTab(rows, team) {
       }
     }
 
+    // Weeks Ranked #1
     if (
       blocks.weeksRankedNumber1 &&
+      result.weeksRankedNumber1 === null &&
       teamMatchesCell(row[blocks.weeksRankedNumber1.teamCol], team)
     ) {
-      result.weeksRankedNumber1 = parseNumber(row[blocks.weeksRankedNumber1.valueCol]);
+      result.weeksRankedNumber1 = parseNumber(
+        row[blocks.weeksRankedNumber1.valueCol]
+      );
     }
 
+    // Total Weeks in Top 10
     if (
       blocks.totalWeeksTop10 &&
+      result.totalWeeksTop10 === null &&
       teamMatchesCell(row[blocks.totalWeeksTop10.teamCol], team)
     ) {
-      result.totalWeeksTop10 = parseNumber(row[blocks.totalWeeksTop10.valueCol]);
+      result.totalWeeksTop10 = parseNumber(
+        row[blocks.totalWeeksTop10.valueCol]
+      );
     }
 
+    // Best Streak by Team (+ Is Active? + Seasons)
     if (
       blocks.bestStreakByTeam &&
+      result.bestStreakByTeam === null &&
       teamMatchesCell(row[blocks.bestStreakByTeam.teamCol], team)
     ) {
-      result.bestStreakByTeam = parseNumber(row[blocks.bestStreakByTeam.valueCol]);
+      result.bestStreakByTeam = parseNumber(
+        row[blocks.bestStreakByTeam.valueCol]
+      );
 
       if (blocks.bestStreakByTeam.activeCol >= 0) {
-        const activeRaw = String(row[blocks.bestStreakByTeam.activeCol] || '').trim();
-        result.bestStreakActive = activeRaw || null;
+        const activeRaw = String(
+          row[blocks.bestStreakByTeam.activeCol] || ''
+        )
+          .trim()
+          .toUpperCase();
+        // Normalize to "Yes" / "No" / "—"
+        if (activeRaw === 'YES') result.bestStreakActive = 'Yes';
+        else if (activeRaw === 'NO') result.bestStreakActive = 'No';
+        else if (activeRaw && activeRaw !== '#N/A')
+          result.bestStreakActive = activeRaw;
       }
 
       if (blocks.bestStreakByTeam.seasonsCol >= 0) {
@@ -239,11 +311,22 @@ function parseStatsTab(rows, team) {
   return foundAnything ? result : null;
 }
 
+// ---------- formatting ----------
+
 function fmtWithSeasons(weeks, seasons) {
-  if (weeks === null) return '**0**';
-  if (seasons === null) return `**${weeks}**`;
-  return `**${weeks}** (${seasons} seasons)`;
+  if (weeks === null || weeks === undefined) return '**0**';
+  if (seasons === null || seasons === undefined) return `**${weeks}**`;
+
+  // Seasons values in the sheet are decimals like 9.79 — round to 2dp,
+  // strip trailing zeros for tidier display.
+  const seasonsStr = Number.isInteger(seasons)
+    ? String(seasons)
+    : Number(seasons.toFixed(2)).toString();
+
+  return `**${weeks}** (${seasonsStr} seasons)`;
 }
+
+// ---------- command ----------
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -270,7 +353,9 @@ module.exports = {
     );
 
     if (!team) {
-      return interaction.editReply(`❌ No active team with abbreviation **${abbrev}**.`);
+      return interaction.editReply(
+        `❌ No active team with abbreviation **${abbrev}**.`
+      );
     }
 
     const { rows } = await fetchStatsRows();
@@ -309,7 +394,7 @@ module.exports = {
         {
           name: 'Consecutive Weeks Ranked',
           value: fmtWithSeasons(
-            stats.consecutiveWeeksRanked ?? 0,
+            stats.consecutiveWeeksRanked,
             stats.consecutiveWeeksSeasons
           ),
           inline: true,
@@ -317,7 +402,7 @@ module.exports = {
         {
           name: 'Best Streak by Team',
           value: fmtWithSeasons(
-            stats.bestStreakByTeam ?? 0,
+            stats.bestStreakByTeam,
             stats.bestStreakSeasons
           ),
           inline: true,
