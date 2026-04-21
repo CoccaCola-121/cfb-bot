@@ -11,6 +11,13 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { fetchSheetCsv, normalize } = require('../utils/sheets');
+const {
+  getLatestLeagueData,
+  getCurrentSeason,
+  getLatestTeamSeason,
+  getTeamName,
+  safeNumber,
+} = require('../utils/data');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -54,6 +61,55 @@ function parseCoachCsv(rows) {
     });
   }
   return coaches;
+}
+
+// ── League-team lookup by fuzzy name ─────────────────────────
+function findLeagueTeamByName(leagueData, name) {
+  if (!leagueData?.teams) return null;
+  const target = normalize(name);
+  if (!target) return null;
+  return (
+    leagueData.teams.find(
+      (t) =>
+        !t.disabled &&
+        (normalize(getTeamName(t)) === target ||
+          normalize(t.region) === target ||
+          normalize(t.name) === target ||
+          normalize(t.abbrev) === target)
+    ) || null
+  );
+}
+
+// Add the current in-progress season's W/L onto a coach's resume totals so the
+// leaderboard reflects live records, matching /coachstats behavior.
+function patchRecordWithCurrentSeason(leagueData, coach, record) {
+  if (!record) return record;
+  if (!leagueData) return record;
+
+  const currentSeason = getCurrentSeason(leagueData);
+  if (currentSeason === null || currentSeason === undefined) return record;
+
+  const leagueTeam = findLeagueTeamByName(leagueData, coach.team);
+  if (!leagueTeam) return record;
+
+  const seas = getLatestTeamSeason(leagueTeam, currentSeason);
+  if (!seas) return record;
+
+  const liveW = safeNumber(seas.won);
+  const liveL = safeNumber(seas.lost);
+  if (liveW + liveL === 0) return record;
+
+  const totalW = record.wins + liveW;
+  const totalL = record.losses + liveL;
+  const games = totalW + totalL;
+
+  return {
+    ...record,
+    wins: totalW,
+    losses: totalL,
+    pct: games > 0 ? totalW / games : 0,
+    record: `${totalW}-${totalL}`,
+  };
 }
 
 // ── Parse resume sheet for career W/L ───────────────────────
@@ -141,14 +197,20 @@ module.exports = {
 
     const coaches   = parseCoachCsv(csvRows).filter(c => c.years > 0);
     const recordMap = parseResumeSheet(resumeRows);
+    const leagueData = getLatestLeagueData();
 
     if (!coaches.length) return interaction.editReply('❌ No coach data found.');
 
-    // Attach career record to each coach
-    const enriched = coaches.map(c => ({
-      ...c,
-      record: recordMap.get(normalize(c.coach)) || null,
-    }));
+    // Attach career record to each coach, patched with the current in-progress
+    // season from the latest league export (resume sheet totals exclude live
+    // seasons, so /teamstats & /coachstats would otherwise show more wins).
+    const enriched = coaches.map(c => {
+      const baseRecord = recordMap.get(normalize(c.coach)) || null;
+      return {
+        ...c,
+        record: patchRecordWithCurrentSeason(leagueData, c, baseRecord),
+      };
+    });
 
     const sort = interaction.options.getString('sort') || 'formula';
 

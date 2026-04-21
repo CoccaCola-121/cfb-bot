@@ -18,6 +18,12 @@ const {
 const {
   getScholarshipInfo,
 } = require('../utils/recruiting');
+const {
+  fetchSheetCsv,
+  matchesTeam: sheetsMatchesTeam,
+  getTeamAliases: sheetsGetTeamAliases,
+  normalize: sheetsNormalize,
+} = require('../utils/sheets');
 
 const INFO_SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||
@@ -30,7 +36,10 @@ const RECRUITING_RANKS_SHEET_ID =
 
 const RECRUITING_RANKS_SHEET_NAME =
   process.env.NZCFL_RECRUITING_RANKS_SHEET_NAME ||
-  '247';
+  'Recruiting Rankings';
+
+const RECRUITING_RANKS_SHEET_GID =
+  process.env.NZCFL_RECRUITING_RANKS_SHEET_GID || '';
 
 function ordinal(n) {
   const num = Number(n);
@@ -110,143 +119,80 @@ function buildTeamRankMaps(leagueData, currentSeason) {
   };
 }
 
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let cell = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const next = text[i + 1];
-
-    if (inQuotes) {
-      if (ch === '"' && next === '"') {
-        cell += '"';
-        i++;
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        cell += ch;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ',') {
-      row.push(cell);
-      cell = '';
-    } else if (ch === '\n') {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else if (ch !== '\r') {
-      cell += ch;
-    }
-  }
-
-  row.push(cell);
-  rows.push(row);
-
-  return rows.map((r) => r.map((v) => String(v || '').trim()));
-}
-
-async function fetchSheetRows(sheetId, sheetName) {
-  const url =
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq` +
-    `?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch sheet "${sheetName}" from ${sheetId} (${res.status})`);
-  }
-
-  const text = await res.text();
-  return parseCsv(text);
-}
-
-function normalize(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]/g, '');
-}
-
-function getTeamAliases(team) {
-  const aliases = new Set();
-
-  const abbrev = String(team.abbrev || '').trim();
-  const region = String(team.region || '').trim();
-  const name = String(team.name || '').trim();
-  const full = [region, name].filter(Boolean).join(' ').trim();
-
-  if (abbrev) aliases.add(abbrev);
-  if (region) aliases.add(region);
-  if (name) aliases.add(name);
-  if (full) aliases.add(full);
-
-  if (full === 'Central Florida') aliases.add('UCF');
-  if (full === 'Southern Methodist') aliases.add('SMU');
-  if (full === 'Brigham Young') aliases.add('BYU');
-  if (full === 'Louisiana State') aliases.add('LSU');
-  if (full === 'North Carolina State') aliases.add('NC State');
-  if (full === 'Virginia Polytechnic Institute and State University') {
-    aliases.add('Virginia Tech');
-    aliases.add('VT');
-  }
-  if (full === 'Texas Christian') aliases.add('TCU');
-  if (full === 'Ohio State') aliases.add('tOSU');
-
-  return new Set([...aliases].map(normalize).filter(Boolean));
-}
-
-function committedToTeam(value, team) {
-  const normalized = normalize(value);
-  if (!normalized) return false;
-  return getTeamAliases(team).has(normalized);
-}
-
 function safeNum(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
+const cleanHeaderKey = (s) =>
+  String(s || '').toLowerCase().trim().replace(/[.:?!]+$/, '').trim();
+
+function findCol(colMap, exactKeys, containsKeys = []) {
+  for (const k of exactKeys) if (colMap.has(k)) return colMap.get(k);
+  for (const [h, i] of colMap) {
+    if (containsKeys.some((k) => h.includes(k))) return i;
+  }
+  return -1;
+}
+
+// Dynamically find the header row ("Name" column somewhere in the first ~10 rows)
+// and parse out recruit rows. Mirrors the proven logic in /recruitingclass.
 function toRecruitObjects(rows) {
-  const headerRow = rows[3] || [];
-  const dataRows = rows.slice(4);
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    if ((rows[i] || []).some((c) => cleanHeaderKey(c) === 'name')) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) return [];
+
+  const header = rows[headerIdx];
+  const dataRows = rows.slice(headerIdx + 1);
+  const colMap = new Map();
+  header.forEach((h, i) => colMap.set(cleanHeaderKey(h), i));
+
+  const nameCol = findCol(colMap, ['name'], ['name']);
+  const posCol = findCol(colMap, ['pos', 'position'], ['pos']);
+  const ovrCol = findCol(colMap, ['ovr', 'overall', 'rtg'], ['ovr', 'overall']);
+  const potCol = findCol(colMap, ['pot', 'potential'], ['pot', 'potential']);
+  const commitCol = findCol(
+    colMap,
+    ['committed', 'commit', 'team', 'school', 'destination', 'pledge'],
+    ['commit', 'pledge']
+  );
 
   return dataRows
     .map((row) => {
-      const obj = {
+      const name = nameCol >= 0 ? String(row[nameCol] || '').trim() : String(row[1] || '').trim();
+      if (!name) return null;
+      return {
         recruitId: String(row[0] || '').trim(),
+        Name: name,
+        Pos: posCol >= 0 ? String(row[posCol] || '').trim() : '?',
+        Ovr: ovrCol >= 0 ? String(row[ovrCol] || '').trim() : '0',
+        Pot: potCol >= 0 ? String(row[potCol] || '').trim() : '0',
+        commit: commitCol >= 0 ? String(row[commitCol] || '').trim() : '',
       };
-
-      for (let i = 0; i < headerRow.length; i++) {
-        const key = String(headerRow[i] || '').trim();
-        if (!key) continue;
-        obj[key] = String(row[i + 1] || '').trim();
-      }
-
-      return obj;
     })
-    .filter((row) => row.Name);
+    .filter((r) => r && r.Name);
 }
 
+// Parse the 247 class-rank tab. Columns: A=rank, B=school, C=score, D=#recruits,
+// then recruit IDs. Teams with 0 recruits share the lowest 0-recruit rank
+// (matches /recruitingclass).
 function build247Data(rows) {
   const teamMap = new Map();
   const recruitMap = new Map();
 
+  const teams = [];
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 2) continue;
 
     const teamRank = safeNum(row[0]);
     const school = String(row[1] || '').trim();
-
-    if (!teamRank || !school || normalize(school) === 'school') {
-      continue;
-    }
+    if (!teamRank || !school) continue;
+    if (sheetsNormalize(school) === 'school' || sheetsNormalize(row[0]) === 'rank') continue;
 
     const rankScore = Number(row[2]) || 0;
     const recruitCount = safeNum(row[3]);
@@ -255,24 +201,33 @@ function build247Data(rows) {
       .map((v) => String(v || '').trim())
       .filter((v) => /^\d+$/.test(v));
 
-    const normalizedSchool = normalize(school);
+    teams.push({ school, teamRank, rankScore, recruitCount, recruitIds });
+  }
+
+  const zeros = teams.filter((t) => t.recruitCount === 0);
+  const tieRank = zeros.length ? Math.min(...zeros.map((t) => t.teamRank)) : null;
+
+  for (const t of teams) {
+    const tied = t.recruitCount === 0 && tieRank !== null;
+    const normalizedSchool = sheetsNormalize(t.school);
 
     teamMap.set(normalizedSchool, {
-      school,
-      teamRank,
-      rankScore,
-      recruitCount,
-      recruitIds,
+      school: t.school,
+      teamRank: tied ? tieRank : t.teamRank,
+      rankScore: t.rankScore,
+      recruitCount: t.recruitCount,
+      recruitIds: t.recruitIds,
+      tied,
     });
 
-    for (let i = 0; i < recruitIds.length; i++) {
-      const recruitId = recruitIds[i];
+    for (let i = 0; i < t.recruitIds.length; i++) {
+      const recruitId = t.recruitIds[i];
       if (!recruitMap.has(recruitId)) {
         recruitMap.set(recruitId, {
           recruitRank: i + 1,
-          school,
-          teamRank,
-          rankScore,
+          school: t.school,
+          teamRank: tied ? tieRank : t.teamRank,
+          rankScore: t.rankScore,
         });
       }
     }
@@ -282,17 +237,45 @@ function build247Data(rows) {
 }
 
 function get247TeamInfo(team, team247Map) {
-  for (const alias of getTeamAliases(team)) {
+  for (const alias of sheetsGetTeamAliases(team)) {
     if (team247Map.has(alias)) {
       return team247Map.get(alias);
     }
   }
+  const candidates = [getTeamName(team), team.name, team.region, team.abbrev]
+    .filter(Boolean)
+    .map(sheetsNormalize);
+  for (const n of candidates) {
+    if (team247Map.has(n)) return team247Map.get(n);
+  }
   return null;
+}
+
+// Try GID first, then a list of plausible tab names. Mirrors /recruitingclass
+// fetchRanks247() so both commands find the same tab reliably.
+async function fetchRanks247() {
+  if (RECRUITING_RANKS_SHEET_GID) {
+    try {
+      const rows = await fetchSheetCsv(RECRUITING_RANKS_SHEET_ID, RECRUITING_RANKS_SHEET_GID, true);
+      if (rows && rows.length > 1) return rows;
+    } catch (_e) { /* fall through */ }
+  }
+
+  const tried = new Set();
+  for (const tab of [RECRUITING_RANKS_SHEET_NAME, 'Recruiting Rankings', '247', 'Rankings']) {
+    if (!tab || tried.has(tab)) continue;
+    tried.add(tab);
+    try {
+      const rows = await fetchSheetCsv(RECRUITING_RANKS_SHEET_ID, tab);
+      if (rows && rows.length > 1) return rows;
+    } catch (_e) { /* try next */ }
+  }
+  return [];
 }
 
 function buildRecruitingSummaryForTeam(allRows, team, team247Map, recruit247Map) {
   const recruits = allRows
-    .filter((row) => committedToTeam(row['Committed?'], team))
+    .filter((row) => sheetsMatchesTeam(row.commit, team))
     .map((row) => {
       const recruit247 = recruit247Map.get(String(row.recruitId || '').trim()) || null;
 
@@ -315,11 +298,24 @@ function buildRecruitingSummaryForTeam(allRows, team, team247Map, recruit247Map)
       return a.name.localeCompare(b.name);
     });
 
+  const class247 = get247TeamInfo(team, team247Map);
+
+  // If there are no recruits on the NZCFL Info tab yet but the 247 class data
+  // has a matching team entry, still surface class score / rank so the field
+  // isn't "?" early in the cycle.
   if (!recruits.length) {
-    return null;
+    if (!class247) return null;
+    return {
+      recruitCount: 0,
+      classScore: class247.rankScore ?? null,
+      avgPot: 0,
+      avgOvr: 0,
+      top100: 0,
+      bestRecruit: null,
+      rank: class247.teamRank ?? null,
+    };
   }
 
-  const class247 = get247TeamInfo(team, team247Map);
   const avgPot = recruits.reduce((sum, r) => sum + r.pot, 0) / recruits.length;
   const avgOvr = recruits.reduce((sum, r) => sum + r.ovr, 0) / recruits.length;
   const top100 = recruits.filter((r) => r.recruitRank && r.recruitRank <= 100).length;
@@ -386,11 +382,15 @@ module.exports = {
     }
 
     try {
-      const recruitingSheetName = `${currentSeason + 1} Recruiting`;
+      // The NZCFL Info recruiting tab is named by the current (in-progress)
+      // season — this is the same convention /recruitingclass uses. Previously
+      // this used `currentSeason + 1`, which pointed at a tab that doesn't
+      // exist yet and caused class score / commit count to silently fail.
+      const recruitingSheetName = `${currentSeason} Recruiting`;
 
       const [recruitingRows, recruiting247Rows] = await Promise.all([
-        fetchSheetRows(INFO_SHEET_ID, recruitingSheetName),
-        fetchSheetRows(RECRUITING_RANKS_SHEET_ID, RECRUITING_RANKS_SHEET_NAME),
+        fetchSheetCsv(INFO_SHEET_ID, recruitingSheetName),
+        fetchRanks247(),
       ]);
 
       const recruitingObjects = toRecruitObjects(recruitingRows);

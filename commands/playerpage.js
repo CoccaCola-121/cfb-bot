@@ -326,6 +326,19 @@ module.exports = {
 
     const teamMap = getTeamMap(leagueData);
     const team = player.tid >= 0 ? teamMap.get(player.tid) : null;
+
+    // Football GM uses tid === -2 for upcoming draft prospects / recruits
+    // ("Draft Prospect" / DP), and tid === -1 for Free Agents.
+    let teamDisplay;
+    if (team) {
+      teamDisplay = `${team.region} ${team.name} (${team.abbrev})`;
+    } else if (player.tid === -2) {
+      teamDisplay = 'Draft Prospect (DP)';
+    } else if (player.tid === -1) {
+      teamDisplay = 'Free Agent';
+    } else {
+      teamDisplay = 'Free Agent / N/A';
+    }
     const currentSeason = getCurrentSeason(leagueData);
     const pos = getLatestPosition(player);
     const age = getCurrentAge(player, currentSeason);
@@ -339,7 +352,7 @@ module.exports = {
     const logoUrl = team ? getTeamLogoUrl(team) : null;
 
     const profileLines = [
-      `Team: **${team ? `${team.region} ${team.name} (${team.abbrev})` : 'Free Agent / N/A'}**`,
+      `Team: **${teamDisplay}**`,
       `Position: **${pos}**`,
       `Jersey: **#${jerseyNumber}**`,
       `Age: **${age}**`,

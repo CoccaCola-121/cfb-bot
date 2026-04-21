@@ -349,8 +349,19 @@ function getConferenceAbbrevFromName(name) {
   const normalized = String(name || '').toLowerCase().trim();
 
   if (normalized.includes('atlantic coast') || normalized === 'acc') return 'ACC';
-  if (normalized.includes('big ten') || normalized === 'b1g') return 'B1G';
-  if (normalized.includes('big 12') || normalized === 'b12') return 'B12';
+  if (
+    normalized.includes('big ten') ||
+    normalized.includes('big 10') ||
+    normalized.includes('big10') ||
+    normalized === 'b1g'
+  ) return 'B1G';
+  if (
+    normalized.includes('big 12') ||
+    normalized.includes('big12') ||
+    normalized.includes('big twelve') ||
+    normalized.includes('big xii') ||
+    normalized === 'b12'
+  ) return 'B12';
 
   if (
     normalized.includes('pac-12') ||
@@ -405,11 +416,22 @@ function findConferenceByAbbrev(leagueData, abbrev) {
     }
 
     if (target === 'B1G') {
-      return name.includes('big ten') || name.includes('b1g');
+      return (
+        name.includes('big ten') ||
+        name.includes('big 10') ||
+        name.includes('big10') ||
+        name.includes('b1g')
+      );
     }
 
     if (target === 'B12') {
-      return name.includes('big 12') || name.includes('b12');
+      return (
+        name.includes('big 12') ||
+        name.includes('big12') ||
+        name.includes('big twelve') ||
+        name.includes('big xii') ||
+        name.includes('b12')
+      );
     }
 
     if (target === 'C-USA' || target === 'CUSA') {
@@ -565,18 +587,21 @@ function getStandings(leagueData) {
 // ── Conference standings by division ─────────────────────────
 
 function compareDivisionTeams(leagueData, a, b) {
-  const aDivPct = Number(formatPct(a.divWins, a.divLosses, a.divTies));
-  const bDivPct = Number(formatPct(b.divWins, b.divLosses, b.divTies));
-  if (bDivPct !== aDivPct) return bDivPct - aDivPct;
-
+  // Primary: conference record.
   const aConfPct = Number(formatPct(a.confWins, a.confLosses, a.confTies));
   const bConfPct = Number(formatPct(b.confWins, b.confLosses, b.confTies));
   if (bConfPct !== aConfPct) return bConfPct - aConfPct;
 
+  // Secondary: head-to-head record.
   const h2h = getHeadToHeadRecord(leagueData, a.tid, b.tid);
   if (h2h.aWins !== h2h.bWins) {
     return h2h.bWins - h2h.aWins;
   }
+
+  // Tertiary: division record.
+  const aDivPct = Number(formatPct(a.divWins, a.divLosses, a.divTies));
+  const bDivPct = Number(formatPct(b.divWins, b.divLosses, b.divTies));
+  if (bDivPct !== aDivPct) return bDivPct - aDivPct;
 
   return a.name.localeCompare(b.name);
 }
@@ -645,11 +670,6 @@ function getConferenceDivisionStandings(leagueData, conferenceAbbrev) {
         const prev = sortedTeams[i - 1];
         const curr = sortedTeams[i];
 
-        const sameDivRecord =
-          curr.divWins === prev.divWins &&
-          curr.divLosses === prev.divLosses &&
-          curr.divTies === prev.divTies;
-
         const sameConfRecord =
           curr.confWins === prev.confWins &&
           curr.confLosses === prev.confLosses &&
@@ -658,7 +678,14 @@ function getConferenceDivisionStandings(leagueData, conferenceAbbrev) {
         const h2h = getHeadToHeadRecord(leagueData, curr.tid, prev.tid);
         const h2hTied = h2h.aWins === h2h.bWins;
 
-        if (sameDivRecord && sameConfRecord && h2hTied) {
+        const sameDivRecord =
+          curr.divWins === prev.divWins &&
+          curr.divLosses === prev.divLosses &&
+          curr.divTies === prev.divTies;
+
+        // Tiebreakers run in order: conf record → H2H → div record. Teams
+        // share a rank only when every tier is tied.
+        if (sameConfRecord && h2hTied && sameDivRecord) {
           rankedTeams.push({ ...curr, rank: currentRank });
         } else {
           currentRank = i + 1;
@@ -743,7 +770,10 @@ function findPlayerByName(leagueData, query) {
   const currentSeason = getCurrentSeason(leagueData);
 
   const candidates = (leagueData.players || [])
-    .filter((player) => player.tid !== undefined && player.tid >= -1)
+    // Include players on real teams (tid >= 0), free agents (tid === -1),
+    // and draft prospects / upcoming recruits (tid === -2).
+    // Retired players (tid === -3) are intentionally excluded.
+    .filter((player) => player.tid !== undefined && player.tid >= -2)
     .map((player) => {
       const fullName = `${player.firstName || ''} ${player.lastName || ''}`.trim();
       const hasCurrentStats = !!getLatestPlayerStats(player, currentSeason, false);
@@ -757,6 +787,9 @@ function findPlayerByName(leagueData, query) {
       if ((player.lastName || '').toLowerCase() === q) score += 15;
       if (hasCurrentStats) score += 10;
       if (player.tid >= 0) score += 5;
+      // Give draft prospects a small nudge over free agents so an exact-name
+      // match on a recruit wins the tiebreaker when both exist.
+      if (player.tid === -2) score += 3;
 
       return { player, score, fullName };
     })

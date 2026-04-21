@@ -135,20 +135,20 @@ function getHeadToHeadDiff(leagueData, teamATid, teamBTid) {
   return aWins - bWins;
 }
 
-// Sort order: conf record → div record → head-to-head → overall record.
+// Sort order: conference record → head-to-head → division record → overall record.
 function sortDivisionTeams(leagueData, teams) {
   return [...teams].sort((a, b) => {
     const aConfPts = recordPoints(a.confWins, a.confLosses, a.confTies);
     const bConfPts = recordPoints(b.confWins, b.confLosses, b.confTies);
     if (aConfPts !== bConfPts) return bConfPts - aConfPts;
 
+    // Tied on conference record — use head-to-head before division record.
+    const h2h = getHeadToHeadDiff(leagueData, a.tid, b.tid);
+    if (h2h !== 0) return -h2h; // more H2H wins comes first
+
     const aDivPts = recordPoints(a.divWins, a.divLosses, a.divTies);
     const bDivPts = recordPoints(b.divWins, b.divLosses, b.divTies);
     if (aDivPts !== bDivPts) return bDivPts - aDivPts;
-
-    // Tied on both conf and div — use H2H if they've played.
-    const h2h = getHeadToHeadDiff(leagueData, a.tid, b.tid);
-    if (h2h !== 0) return -h2h; // more H2H wins comes first
 
     // Final fallback: overall record.
     const aTotalPts = recordPoints(a.wins, a.losses, a.ties);
@@ -179,8 +179,11 @@ function isEliminatedFromDivision(leagueData, divisionTeams, team) {
     return true;
   }
 
-  // If they can at best tie the leader in conf record, they also need to catch
-  // them in div record (since that's our secondary sort key).
+  // If they can at best tie the leader in conf record, H2H is the first
+  // tiebreaker. Since H2H is pairwise (not monotonic across the season), we
+  // only fall back to the division-record tiebreaker here — this is a
+  // conservative elimination check, so we don't mark a team as eliminated on
+  // H2H alone.
   if (maxPossibleConfPts === leaderConfPts && maxPossibleDivPts < leaderDivPts) {
     return true;
   }
@@ -255,7 +258,7 @@ module.exports = {
         .setColor(0x2e86c1)
         .setDescription(lines.join('\n\n'))
         .setFooter({
-          text: 'Sorted by conference record, then division record, then head-to-head. Eliminated = cannot catch division leader.',
+          text: 'Sorted by conference record, then head-to-head, then division record. Eliminated = cannot catch division leader.',
         });
 
       if (conferenceLogo) {
