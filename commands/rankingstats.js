@@ -12,11 +12,14 @@ const {
 } = require('../utils/data');
 const { fetchSheetCsv } = require('../utils/sheets');
 
+// Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
   process.env.RANKINGS_HISTORY_SHEET_ID ||
-  process.env.NZCFL_INFO_SHEET_ID ||
-  process.env.GOOGLE_SHEET_ID ||
-  '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
+  '129V_2xHRjmk7MXnIY8ABvhlloauBb4lBZqfGW08S0Oc';
+
+// Stats tab gid (used as a reliable fallback if the named lookup fails).
+const STATS_TAB_GID =
+  process.env.RANKINGS_HISTORY_STATS_GID || '1827012639';
 
 // ---------- helpers ----------
 
@@ -94,6 +97,16 @@ async function fetchStatsRows() {
     } catch {
       // try next
     }
+  }
+
+  // Fallback: load by gid directly.
+  try {
+    const rows = await fetchSheetCsv(SHEET_ID, STATS_TAB_GID, true);
+    if (Array.isArray(rows) && rows.length > 1) {
+      return { rows, tab: `gid:${STATS_TAB_GID}` };
+    }
+  } catch {
+    // fall through
   }
 
   return { rows: null, tab: '' };
