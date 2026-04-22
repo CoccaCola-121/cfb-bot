@@ -445,25 +445,22 @@ module.exports = {
       `Takeaways: **${takeaways}** (${ordinal(rankMaps.takeaways.get(team.tid))})`,
     ];
 
-    const recruitingBits = [
+    // Line 1: Open Scholarships and Commits
+    const recruitingLine1 = [
       `Open Scholarships: **${scholarshipInfo?.scholarshipsAvailable ?? '?'}**`,
-      `Class Score: **${recruitingInfo?.classScore?.toFixed?.(3) ?? '?'}**`,
       `Commits: **${recruitingInfo?.recruitCount ?? 0}**`,
+    ].join('  •  ');
+
+    // Line 2: Class Score and Class Rank
+    const recruitingLine2Parts = [
+      `Class Score: **${recruitingInfo?.classScore?.toFixed?.(3) ?? '?'}**`,
     ];
-
     if (recruitingInfo?.rank !== null && recruitingInfo?.rank !== undefined) {
-      recruitingBits.push(`Class Rank: **${recruitingInfo.rank}**`);
+      recruitingLine2Parts.push(`Class Rank: **${recruitingInfo.rank}**`);
     }
+    const recruitingLine2 = recruitingLine2Parts.join('  •  ');
 
-    if (recruitingInfo?.top100 !== null && recruitingInfo?.top100 !== undefined) {
-      recruitingBits.push(`Top 100: **${recruitingInfo.top100}**`);
-    }
-
-    if (recruitingInfo?.bestRecruit?.name) {
-      recruitingBits.push(
-        `Best Recruit: **${recruitingInfo.bestRecruit.name} (${recruitingInfo.bestRecruit.recruitRank ? `#${recruitingInfo.bestRecruit.recruitRank}` : 'Unranked'})**`
-      );
-    }
+    const recruitingValue = `${recruitingLine1}\n${recruitingLine2}`;
 
     const embed = new EmbedBuilder()
       .setTitle(`${getTeamName(team)} (${team.abbrev})`)
@@ -489,7 +486,7 @@ module.exports = {
         },
         {
           name: '🧢 Recruiting',
-          value: recruitingBits.join('  •  '),
+          value: recruitingValue,
           inline: false,
         },
         {

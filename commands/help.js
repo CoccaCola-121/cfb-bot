@@ -1,5 +1,5 @@
 // ============================================================
-//  commands/help.js  —  UPDATED with all new commands
+//  commands/help.js
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -25,7 +25,7 @@ module.exports = {
             '`/playerleaders <stat>` — Top 10 players in any stat category',
             '`/playerpage <player>` — Full player profile, ratings, and stats',
             '`/scores [week]` — Game scores (latest week or specify)',
-            '`/boxscore <team> [week]` — **NEW** Single-game box score with stat leaders',
+            '`/boxscore <team> [week]` — Single-game box score with stat leaders',
             '`/compareteams <team1> <team2>` — Side-by-side team comparison',
             '`/injuries <team>` — Current injuries and redshirts',
           ].join('\n'),
@@ -35,23 +35,23 @@ module.exports = {
           value: [
             '`/coachstats <name>` — Coach resume with career record, titles, history',
             '`/coachleaderboard [sort]` — Top coaches by formula, wins, win%, conf titles, or rings',
-            '`/contractwatch` — **NEW** Coaches available + schools without a listed coach',
-            '`/openpositions [conference]` — **NEW** Ranks open coaching jobs by attractiveness',
+            '`/contractwatch [view]` — Top open coaching jobs (current or end-of-season)',
+            '`/openpositions [conference]` — Ranks open coaching jobs by attractiveness',
           ].join('\n'),
         },
         {
           name: '🧢 Recruiting',
           value: [
             '`/recruitingclass <team>` — Upcoming recruiting class with 247 ranks',
-            '`/recruitingleaders [position]` — **NEW** Top recruits by position + commitments',
+            '`/recruitingleaders [position]` — Top recruits by position + commitments',
           ].join('\n'),
         },
         {
           name: '📅 Schedule & Rankings',
           value: [
-            '`/ooc <team> [year]` — Out-of-conference schedule *(fixed double-count bug)*',
-            '`/rankhistory <team>` — **NEW** Season-long AP poll ranking history',
-            '`/valueboard [conference]` — **NEW** Team value rankings',
+            '`/ooc <team> [year]` — Out-of-conference schedule',
+            '`/rankhistory <team>` — Season-long AP poll ranking history',
+            '`/valueboard [conference]` — Team value rankings',
           ].join('\n'),
         },
         {

@@ -28,6 +28,12 @@ function getTeamMetaMaps(leagueData) {
   return { byTid };
 }
 
+// Regular season is 12 games per team. Anything after that (days 13+ in the
+// export) is CCG / bowls and must NOT be counted toward division/conference
+// elimination math — the leader "losing" the CCG can't flip the conference
+// title since those games don't change wonConf/wonDiv counts.
+const REGULAR_SEASON_GAMES = 12;
+
 function getFutureGames(leagueData) {
   const futureGames = [];
 
@@ -43,8 +49,11 @@ function getFutureGames(leagueData) {
         game.away?.tid ??
         game.teams?.[1]?.tid;
 
+      const day =
+        typeof game.day === 'number' ? game.day : null;
+
       if (Number.isInteger(homeTid) && Number.isInteger(awayTid)) {
-        futureGames.push({ homeTid, awayTid });
+        futureGames.push({ homeTid, awayTid, day });
       }
     }
   }
@@ -62,12 +71,32 @@ function getFutureGames(leagueData) {
         typeof teams[1]?.pts === 'number';
 
       if (!played && Number.isInteger(homeTid) && Number.isInteger(awayTid)) {
-        futureGames.push({ homeTid, awayTid });
+        const day = typeof game.day === 'number' ? game.day : null;
+        futureGames.push({ homeTid, awayTid, day });
       }
     }
   }
 
   return futureGames;
+}
+
+// Returns total games played by a team in the current season from the
+// seasons[] record (wins+losses+ties). Falls back to 0 if unknown.
+function getTeamGamesPlayed(leagueData, teamTid) {
+  const team = (leagueData.teams || []).find((t) => t.tid === teamTid);
+  if (!team) return 0;
+  const currentSeason = leagueData.gameAttributes?.season;
+  const seasons = Array.isArray(team.seasons) ? team.seasons : [];
+  let seas = null;
+  if (currentSeason !== undefined && currentSeason !== null) {
+    seas = seasons.find((s) => s.season === currentSeason);
+  }
+  if (!seas) seas = seasons[seasons.length - 1];
+  if (!seas) return 0;
+  const w = Number(seas.won) || 0;
+  const l = Number(seas.lost) || 0;
+  const t = Number(seas.tied) || 0;
+  return w + l + t;
 }
 
 function countRelevantRemainingGames(leagueData, teamTid) {
@@ -79,16 +108,31 @@ function countRelevantRemainingGames(leagueData, teamTid) {
     return { divRemaining: 0, confRemaining: 0 };
   }
 
+  const gamesPlayed = getTeamGamesPlayed(leagueData, teamTid);
+  const regSeasonSlotsLeft = Math.max(0, REGULAR_SEASON_GAMES - gamesPlayed);
+
+  // Team's upcoming games, sorted by day so we consider the earliest games
+  // first when capping at regular-season slots.
+  const teamFutureGames = futureGames
+    .filter((g) => g.homeTid === teamTid || g.awayTid === teamTid)
+    .sort((a, b) => {
+      const aDay = a.day ?? Number.MAX_SAFE_INTEGER;
+      const bDay = b.day ?? Number.MAX_SAFE_INTEGER;
+      return aDay - bDay;
+    });
+
   let divRemaining = 0;
   let confRemaining = 0;
+  let regCountedSoFar = 0;
 
-  for (const game of futureGames) {
-    const involvesTeam = game.homeTid === teamTid || game.awayTid === teamTid;
-    if (!involvesTeam) continue;
+  for (const game of teamFutureGames) {
+    if (regCountedSoFar >= regSeasonSlotsLeft) break;
 
     const oppTid = game.homeTid === teamTid ? game.awayTid : game.homeTid;
     const oppMeta = byTid.get(oppTid);
     if (!oppMeta || oppMeta.disabled) continue;
+
+    regCountedSoFar += 1;
 
     const sameConference = oppMeta.cid === teamMeta.cid;
     const sameDivision = sameConference && oppMeta.did === teamMeta.did;

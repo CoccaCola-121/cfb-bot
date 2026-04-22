@@ -10,9 +10,101 @@ const {
   getLatestPlayerStats,
   findPlayerByName,
   getCurrentSeason,
+  getTeamName,
   safeNumber,
   getTeamLogoUrl,
 } = require('../utils/data');
+const {
+  fetchSheetCsv,
+  matchesTeam,
+} = require('../utils/sheets');
+
+const INFO_SHEET_ID =
+  process.env.NZCFL_INFO_SHEET_ID ||
+  process.env.GOOGLE_SHEET_ID ||
+  '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
+
+const cleanHeaderKey = (s) =>
+  String(s || '').toLowerCase().trim().replace(/[.:?!]+$/, '').trim();
+
+function findCol(colMap, exactKeys, containsKeys = []) {
+  for (const k of exactKeys) if (colMap.has(k)) return colMap.get(k);
+  for (const [h, i] of colMap) {
+    if (containsKeys.some((k) => h.includes(k))) return i;
+  }
+  return -1;
+}
+
+// Parse the NZCFL Info recruiting tab the same way /recruitingclass does.
+function toRecruitObjects(rows) {
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    if ((rows[i] || []).some((c) => cleanHeaderKey(c) === 'name')) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) return [];
+
+  const header = rows[headerIdx];
+  const dataRows = rows.slice(headerIdx + 1);
+  const colMap = new Map();
+  header.forEach((h, i) => colMap.set(cleanHeaderKey(h), i));
+
+  const nameCol = findCol(colMap, ['name'], ['name']);
+  const posCol = findCol(colMap, ['pos', 'position'], ['pos']);
+  const commitCol = findCol(
+    colMap,
+    ['committed', 'commit', 'team', 'school', 'destination', 'pledge'],
+    ['commit', 'pledge']
+  );
+
+  return dataRows
+    .map((row) => {
+      const name = nameCol >= 0 ? String(row[nameCol] || '').trim() : String(row[1] || '').trim();
+      if (!name) return null;
+      return {
+        Name: name,
+        Pos: posCol >= 0 ? String(row[posCol] || '').trim() : '',
+        commit: commitCol >= 0 ? String(row[commitCol] || '').trim() : '',
+      };
+    })
+    .filter((r) => r && r.Name);
+}
+
+// Case-insensitive name match. Tries full "first last" first, then last-name
+// suffix match as a fallback.
+function findRecruitCommit(recruits, player) {
+  if (!recruits.length) return null;
+  const first = String(player.firstName || '').toLowerCase().trim();
+  const last = String(player.lastName || '').toLowerCase().trim();
+  const full = `${first} ${last}`.trim();
+  if (!full) return null;
+
+  const exact = recruits.find((r) => r.Name.toLowerCase().trim() === full);
+  if (exact) return exact;
+
+  const loose = recruits.find((r) => {
+    const n = r.Name.toLowerCase().trim();
+    return n.endsWith(` ${last}`) && n.includes(first);
+  });
+  return loose || null;
+}
+
+// Given a commit string from the sheet (e.g. "Michigan State"), find the
+// matching active team in the league and return its display name.
+function resolveCommitDisplay(leagueData, commitString) {
+  const raw = String(commitString || '').trim();
+  if (!raw) return null;
+
+  const matched = (leagueData.teams || []).find(
+    (t) => !t.disabled && matchesTeam(raw, t)
+  );
+  if (matched) {
+    return `${getTeamName(matched)} (${matched.abbrev})`;
+  }
+  return raw;
+}
 
 function getCurrentAge(player, currentSeason) {
   if (typeof player.age === 'number') return player.age;
@@ -326,74 +418,119 @@ module.exports = {
 
     const teamMap = getTeamMap(leagueData);
     const team = player.tid >= 0 ? teamMap.get(player.tid) : null;
+    const isDraftProspect = player.tid === -2;
+
+    const currentSeason = getCurrentSeason(leagueData);
+    const pos = getLatestPosition(player);
+    const homeState = getHomeState(player);
+    const ratingBlock = getRelevantRatings(player);
+    const previousTeams = getPreviousTeams(player, teamMap);
+
+    // For Draft Prospects, look up their commit in the NZCFL Info sheet. A
+    // failed lookup just means "commit is unknown yet", not an error.
+    let commitDisplay = null;
+    if (isDraftProspect) {
+      try {
+        const season = Number(currentSeason);
+        if (Number.isFinite(season)) {
+          const sheetName = `${season} Recruiting`;
+          const rows = await fetchSheetCsv(INFO_SHEET_ID, sheetName);
+          const recruits = toRecruitObjects(rows);
+          const found = findRecruitCommit(recruits, player);
+          if (found && found.commit) {
+            commitDisplay = resolveCommitDisplay(leagueData, found.commit);
+          }
+        }
+      } catch (err) {
+        console.error('playerpage recruit lookup error:', err);
+      }
+    }
 
     // Football GM uses tid === -2 for upcoming draft prospects / recruits
     // ("Draft Prospect" / DP), and tid === -1 for Free Agents.
     let teamDisplay;
     if (team) {
       teamDisplay = `${team.region} ${team.name} (${team.abbrev})`;
-    } else if (player.tid === -2) {
+    } else if (isDraftProspect) {
       teamDisplay = 'Draft Prospect (DP)';
     } else if (player.tid === -1) {
       teamDisplay = 'Free Agent';
     } else {
       teamDisplay = 'Free Agent / N/A';
     }
-    const currentSeason = getCurrentSeason(leagueData);
-    const pos = getLatestPosition(player);
-    const age = getCurrentAge(player, currentSeason);
-    const grade = getGradeLabel(player, currentSeason);
-    const jerseyNumber = getJerseyNumber(player);
-    const homeState = getHomeState(player);
-    const stats = getLatestPlayerStats(player, currentSeason, false);
-    const ratingBlock = getRelevantRatings(player);
-    const statLines = buildRelevantStatLines(player, stats);
-    const previousTeams = getPreviousTeams(player, teamMap);
+
     const logoUrl = team ? getTeamLogoUrl(team) : null;
 
-    const profileLines = [
-      `Team: **${teamDisplay}**`,
-      `Position: **${pos}**`,
-      `Jersey: **#${jerseyNumber}**`,
-      `Age: **${age}**`,
-      `Grade: **${grade}**`,
-      `Home State: **${homeState}**`,
-    ];
+    // DP players get a stripped-down profile: just commit status, position,
+    // home state, previous teams (if any). No Jersey / Age / Grade / stats.
+    let profileLines;
+    if (isDraftProspect) {
+      const committedValue = commitDisplay
+        ? `**${commitDisplay}**`
+        : '*N/A*';
+
+      profileLines = [
+        `Committed: ${committedValue}`,
+        `Position: **${pos}**`,
+        `Home State: **${homeState}**`,
+      ];
+    } else {
+      const age = getCurrentAge(player, currentSeason);
+      const grade = getGradeLabel(player, currentSeason);
+      const jerseyNumber = getJerseyNumber(player);
+
+      profileLines = [
+        `Team: **${teamDisplay}**`,
+        `Position: **${pos}**`,
+        `Jersey: **#${jerseyNumber}**`,
+        `Age: **${age}**`,
+        `Grade: **${grade}**`,
+        `Home State: **${homeState}**`,
+      ];
+    }
 
     if (previousTeams.length) {
       profileLines.push(`Previous Team(s): **${previousTeams.join(', ')}**`);
     }
 
+    const fields = [
+      {
+        name: 'Profile',
+        value: profileLines.join('\n'),
+        inline: false,
+      },
+      {
+        name: 'Overall',
+        value: ratingBlock.overall,
+        inline: false,
+      },
+      {
+        name: 'Physical',
+        value: ratingBlock.physical,
+        inline: false,
+      },
+      {
+        name: 'Relevant Ratings',
+        value: ratingBlock.skills,
+        inline: false,
+      },
+    ];
+
+    // Only show stats for real players — a DP hasn't taken a college snap yet.
+    if (!isDraftProspect) {
+      const stats = getLatestPlayerStats(player, currentSeason, false);
+      const statLines = buildRelevantStatLines(player, stats);
+      fields.push({
+        name: 'Stats',
+        value: statLines.join('\n'),
+        inline: false,
+      });
+    }
+
     const embed = new EmbedBuilder()
       .setTitle(`🧾 ${`${player.firstName || ''} ${player.lastName || ''}`.trim()}`)
       .setColor(0x95a5a6)
-      .addFields(
-        {
-          name: 'Profile',
-          value: profileLines.join('\n'),
-          inline: false,
-        },
-        {
-          name: 'Overall',
-          value: ratingBlock.overall,
-          inline: false,
-        },
-        {
-          name: 'Physical',
-          value: ratingBlock.physical,
-          inline: false,
-        },
-        {
-          name: 'Relevant Ratings',
-          value: ratingBlock.skills,
-          inline: false,
-        },
-        {
-          name: 'Stats',
-          value: statLines.join('\n'),
-          inline: false,
-        }
-      )
+      .addFields(...fields)
       .setFooter({ text: 'Short player page from latest Football GM export' })
       .setTimestamp();
 
