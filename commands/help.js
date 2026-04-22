@@ -28,6 +28,9 @@ module.exports = {
             '`/boxscore <team> [week]` — Single-game box score with stat leaders',
             '`/compareteams <team1> <team2>` — Side-by-side team comparison',
             '`/injuries <team>` — Current injuries and redshirts',
+            '`/confoverview <conference>` — Conference-wide team stats summary',
+            '`/heismanwatch` — Top 10 Heisman contenders by stat formula',
+            '`/weeklypreview` — Top upcoming matchups ranked by hype',
           ].join('\n'),
         },
         {
@@ -35,8 +38,7 @@ module.exports = {
           value: [
             '`/coachstats <name>` — Coach resume with career record, titles, history',
             '`/coachleaderboard [sort]` — Top coaches by formula, wins, win%, conf titles, or rings',
-            '`/contractwatch [view]` — Top open coaching jobs (current or end-of-season)',
-            '`/openpositions [conference]` — Ranks open coaching jobs by attractiveness',
+            '`/openpositions [view] [conference]` — Ranks open coaching jobs by attractiveness',
           ].join('\n'),
         },
         {
