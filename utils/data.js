@@ -947,19 +947,73 @@ function rowsToObjects(rows) {
   );
 }
 
+// Reddit has been increasingly aggressive about 403ing requests that look
+// like scrapers. The rules that help in practice:
+//   • Use a descriptive User-Agent in the "<platform>:<app>:<ver> (by /u/x)"
+//     shape that Reddit's API docs recommend.
+//   • Fall back to old.reddit.com when www.reddit.com returns 403.
+//   • Also try the unauth OAuth JSON endpoint as a last resort.
+const REDDIT_USER_AGENT =
+  process.env.REDDIT_USER_AGENT ||
+  'node:nzcfl-discord-bot:v1.1 (by /u/nzcfl-league-bot)';
+
+async function fetchRedditJson(path, qs = {}) {
+  // path is always "/r/<sub>/new.json" or "/comments/<id>.json" (absolute path).
+  const queryString = Object.entries(qs)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  const suffix = queryString ? `?${queryString}` : '';
+
+  const hosts = ['www.reddit.com', 'old.reddit.com'];
+  let lastStatus = 0;
+  let lastBody = '';
+
+  for (const host of hosts) {
+    const url = `https://${host}${path}${suffix}`;
+    let res;
+    try {
+      res = await fetchFn(url, {
+        headers: {
+          'User-Agent': REDDIT_USER_AGENT,
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+      });
+    } catch (err) {
+      lastStatus = 0;
+      lastBody = err.message || 'network error';
+      continue;
+    }
+
+    if (res.ok) return res.json();
+
+    lastStatus = res.status;
+    try {
+      lastBody = (await res.text()).slice(0, 200);
+    } catch {
+      lastBody = '';
+    }
+
+    // Only bother falling back to the other host on 403/429/5xx.
+    if (![403, 429, 500, 502, 503, 504].includes(res.status)) break;
+  }
+
+  throw new Error(
+    `Reddit API returned ${lastStatus}${lastBody ? ` — ${lastBody}` : ''}`
+  );
+}
+
 async function getRedditPosts(limit = 5, sort = 'new') {
   const sub = process.env.REDDIT_SUBREDDIT;
   if (!sub) throw new Error('REDDIT_SUBREDDIT not set in .env');
 
-  const url = `https://www.reddit.com/r/${sub}/${sort}.json?limit=${limit}`;
-  const res = await fetchFn(url, {
-    headers: { 'User-Agent': 'CFBLeagueBot/1.0' },
+  const json = await fetchRedditJson(`/r/${sub}/${sort}.json`, {
+    limit,
+    raw_json: 1,
   });
 
-  if (!res.ok) throw new Error(`Reddit API returned ${res.status}`);
-
-  const json = await res.json();
-  return json.data.children.map((c) => c.data);
+  return (json?.data?.children || []).map((c) => c.data);
 }
 
 // Fetch the full comment tree for a Reddit post. Accepts either a permalink
@@ -967,25 +1021,27 @@ async function getRedditPosts(limit = 5, sort = 'new') {
 // of top-level comments where each has a `.replies` array (also comment
 // objects). Uses raw_json=1 so the API returns text without HTML entities.
 async function getRedditComments(permalinkOrId, { limit = 500, depth = 3 } = {}) {
-  let url;
+  // Normalize the input into an absolute path, stripping any host.
+  let path;
   if (/^https?:/i.test(permalinkOrId)) {
-    url = permalinkOrId.replace(/\/?$/, '.json');
+    try {
+      const u = new URL(permalinkOrId);
+      path = u.pathname;
+    } catch {
+      path = permalinkOrId;
+    }
   } else if (permalinkOrId.startsWith('/')) {
-    url = `https://www.reddit.com${permalinkOrId.replace(/\/?$/, '.json')}`;
+    path = permalinkOrId;
   } else {
     const sub = process.env.REDDIT_SUBREDDIT || 'all';
-    url = `https://www.reddit.com/r/${sub}/comments/${permalinkOrId}.json`;
+    path = `/r/${sub}/comments/${permalinkOrId}`;
   }
 
-  const sep = url.includes('?') ? '&' : '?';
-  url += `${sep}limit=${limit}&depth=${depth}&raw_json=1`;
+  // Ensure path ends with .json (and has no trailing slash before it).
+  path = path.replace(/\/+$/, '');
+  if (!/\.json$/i.test(path)) path += '.json';
 
-  const res = await fetchFn(url, {
-    headers: { 'User-Agent': 'CFBLeagueBot/1.0' },
-  });
-  if (!res.ok) throw new Error(`Reddit API returned ${res.status}`);
-
-  const json = await res.json();
+  const json = await fetchRedditJson(path, { limit, depth, raw_json: 1 });
   if (!Array.isArray(json) || json.length < 2) return [];
 
   const walk = (listing) => {

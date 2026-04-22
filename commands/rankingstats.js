@@ -10,7 +10,10 @@ const {
   getTeamName,
   getTeamLogoUrl,
 } = require('../utils/data');
-const { fetchSheetCsv } = require('../utils/sheets');
+const {
+  fetchSheetCsv,
+  matchesTeam: sheetMatchesTeam,
+} = require('../utils/sheets');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
@@ -33,22 +36,22 @@ function normalize(value) {
     .trim();
 }
 
-function hasStrongTokenOverlap(a, b) {
-  const aa = new Set(normalize(a).split(' ').filter(Boolean));
-  const bb = new Set(normalize(b).split(' ').filter(Boolean));
-  if (!aa.size || !bb.size) return false;
-
-  let overlap = 0;
-  for (const token of aa) {
-    if (bb.has(token)) overlap += 1;
-  }
-  return overlap >= Math.min(2, aa.size, bb.size);
-}
-
+// Strict, exact-alias matching. The previous substring / token-overlap
+// logic was biting us: a "Michigan State" query was pulling rows that
+// only contained "Michigan" because "Michigan State".includes("Michigan")
+// and the two names share a token. We now require an *exact* normalized
+// match against one of the team's known aliases (abbrev, region, name,
+// full name, plus the common aliases in utils/sheets.js like tOSU).
 function teamMatchesCell(cellValue, team) {
   const cell = normalize(cellValue);
   if (!cell) return false;
 
+  // Primary: the alias set from utils/sheets.js already includes every
+  // hand-mapped variant (tOSU, SMU, BYU, VT, etc.) and does exact match.
+  if (sheetMatchesTeam(cellValue, team)) return true;
+
+  // Secondary: our own local normalization may differ slightly (punctuation,
+  // whitespace). Build the same set and require an *exact* normalized hit.
   const variants = [
     team?.abbrev || '',
     team?.region || '',
@@ -59,16 +62,7 @@ function teamMatchesCell(cellValue, team) {
     .map(normalize)
     .filter(Boolean);
 
-  if (variants.includes(cell)) return true;
-
-  for (const v of variants) {
-    if (!v) continue;
-    if (cell === v) return true;
-    if (cell.includes(v) || v.includes(cell)) return true;
-    if (hasStrongTokenOverlap(cell, v)) return true;
-  }
-
-  return false;
+  return variants.includes(cell);
 }
 
 function parseNumber(value) {
@@ -110,6 +104,97 @@ async function fetchStatsRows() {
   }
 
   return { rows: null, tab: '' };
+}
+
+// ---------- historical data tab (for "Last Ranked") ----------
+
+async function fetchHistoricalRows() {
+  const candidates = ['Historical Data', 'Historical', 'History'];
+  for (const tab of candidates) {
+    try {
+      const rows = await fetchSheetCsv(SHEET_ID, tab);
+      if (Array.isArray(rows) && rows.length > 1) return rows;
+    } catch {
+      // try next
+    }
+  }
+  const gid = process.env.RANKINGS_HISTORY_HISTORICAL_GID;
+  if (gid) {
+    try {
+      const rows = await fetchSheetCsv(SHEET_ID, gid, true);
+      if (Array.isArray(rows) && rows.length > 1) return rows;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+/**
+ * Scan the Historical Data tab right-to-left for the last column where
+ * the team shows up in rows 2–28 (1-indexed), then read:
+ *   • the column's week label from the header row (user-facing row 3
+ *     most-likely, so we check rows 1–5 and pick the first with a
+ *     week-ish string),
+ *   • the year from the nearest "20XX Preseason" header to the left.
+ *
+ * Returns { label, year, col } or null if the team never appeared.
+ */
+function findLastRankedInfo(historicalRows, team) {
+  if (!Array.isArray(historicalRows) || historicalRows.length < 2) return null;
+
+  // Rows 2–28 (1-indexed) == indices 1..27.
+  const rowStart = 1;
+  const rowEnd = Math.min(historicalRows.length, 28);
+
+  let maxCols = 0;
+  for (let r = rowStart; r < rowEnd; r++) {
+    const len = (historicalRows[r] || []).length;
+    if (len > maxCols) maxCols = len;
+  }
+  if (maxCols === 0) return null;
+
+  // Walk columns right-to-left until we find the team.
+  let matchCol = -1;
+  for (let c = maxCols - 1; c >= 0; c--) {
+    let hit = false;
+    for (let r = rowStart; r < rowEnd; r++) {
+      const cell = historicalRows[r]?.[c];
+      if (cell && teamMatchesCell(cell, team)) { hit = true; break; }
+    }
+    if (hit) { matchCol = c; break; }
+  }
+  if (matchCol < 0) return null;
+
+  // Week label: prefer the first row (in the first few rows) whose value
+  // at matchCol looks like a week/CCG/playoff header. Falls back to the
+  // first non-empty header cell.
+  const headerCandidates = Math.min(historicalRows.length, 6);
+  const labelPattern = /(week\s*\d+|pre[-\s]?season|ccg|championship|playoff|quarterfinal|semifinal|bowl|champion)/i;
+  let label = '';
+  for (let r = 0; r < headerCandidates; r++) {
+    const h = String(historicalRows[r]?.[matchCol] || '').trim();
+    if (h && labelPattern.test(h)) { label = h; break; }
+  }
+  if (!label) {
+    for (let r = 0; r < headerCandidates; r++) {
+      const h = String(historicalRows[r]?.[matchCol] || '').trim();
+      if (h) { label = h; break; }
+    }
+  }
+
+  // Year: nearest "20XX Preseason" header to the left of matchCol.
+  let year = '';
+  const yearPattern = /\b(20\d{2})\s*pre[-\s]?season/i;
+  for (let c = matchCol; c >= 0 && !year; c--) {
+    for (let r = 0; r < headerCandidates; r++) {
+      const h = String(historicalRows[r]?.[c] || '').trim();
+      const m = h.match(yearPattern);
+      if (m) { year = m[1]; break; }
+    }
+  }
+
+  return { label, year, col: matchCol };
 }
 
 // ---------- layout parsing ----------
@@ -371,7 +456,11 @@ module.exports = {
       );
     }
 
-    const { rows } = await fetchStatsRows();
+    const [{ rows }, historicalRows] = await Promise.all([
+      fetchStatsRows(),
+      fetchHistoricalRows().catch(() => null),
+    ]);
+
     if (!rows) {
       return interaction.editReply(
         '❌ Could not find a usable Stats tab on the rankings history sheet.'
@@ -383,6 +472,18 @@ module.exports = {
       return interaction.editReply(
         `❌ No ranking stats found for **${getTeamName(team)}**.`
       );
+    }
+
+    const lastRanked = historicalRows
+      ? findLastRankedInfo(historicalRows, team)
+      : null;
+
+    let lastRankedDisplay = '—';
+    if (lastRanked) {
+      const parts = [];
+      if (lastRanked.year) parts.push(lastRanked.year);
+      if (lastRanked.label) parts.push(lastRanked.label);
+      if (parts.length) lastRankedDisplay = `**${parts.join(' ')}**`;
     }
 
     const embed = new EmbedBuilder()
@@ -423,6 +524,11 @@ module.exports = {
         {
           name: 'Best Streak Active?',
           value: `**${stats.bestStreakActive || '—'}**`,
+          inline: true,
+        },
+        {
+          name: 'Last Ranked',
+          value: lastRankedDisplay,
           inline: true,
         }
       )
