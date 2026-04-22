@@ -45,14 +45,15 @@ module.exports = {
           name: '🧢 Recruiting',
           value: [
             '`/recruitingclass <team>` — Upcoming recruiting class with 247 ranks',
-            '`/recruitingleaders [position]` — Top recruits by position + commitments',
+            '`/toprecruits [position]` — Top recruits by position + commitments',
+            '`/recruitoffers <player>` — 247-style offer board for one recruit',
           ].join('\n'),
         },
         {
           name: '📅 Schedule & Rankings',
           value: [
             '`/ooc <team> [year]` — Out-of-conference schedule',
-            '`/rankhistory <team>` — Season-long AP poll ranking history',
+            '`/rankingstats <team>` — All-time ranking history summary',
             '`/valueboard [conference]` — Team value rankings',
           ].join('\n'),
         },

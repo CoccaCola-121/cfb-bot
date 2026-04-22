@@ -962,6 +962,55 @@ async function getRedditPosts(limit = 5, sort = 'new') {
   return json.data.children.map((c) => c.data);
 }
 
+// Fetch the full comment tree for a Reddit post. Accepts either a permalink
+// ("/r/NZCFL/comments/abc123/...") or a post id ("abc123"). Returns an array
+// of top-level comments where each has a `.replies` array (also comment
+// objects). Uses raw_json=1 so the API returns text without HTML entities.
+async function getRedditComments(permalinkOrId, { limit = 500, depth = 3 } = {}) {
+  let url;
+  if (/^https?:/i.test(permalinkOrId)) {
+    url = permalinkOrId.replace(/\/?$/, '.json');
+  } else if (permalinkOrId.startsWith('/')) {
+    url = `https://www.reddit.com${permalinkOrId.replace(/\/?$/, '.json')}`;
+  } else {
+    const sub = process.env.REDDIT_SUBREDDIT || 'all';
+    url = `https://www.reddit.com/r/${sub}/comments/${permalinkOrId}.json`;
+  }
+
+  const sep = url.includes('?') ? '&' : '?';
+  url += `${sep}limit=${limit}&depth=${depth}&raw_json=1`;
+
+  const res = await fetchFn(url, {
+    headers: { 'User-Agent': 'CFBLeagueBot/1.0' },
+  });
+  if (!res.ok) throw new Error(`Reddit API returned ${res.status}`);
+
+  const json = await res.json();
+  if (!Array.isArray(json) || json.length < 2) return [];
+
+  const walk = (listing) => {
+    if (!listing || listing.kind !== 'Listing') return [];
+    return (listing.data?.children || [])
+      .filter((c) => c.kind === 't1' && c.data)
+      .map((c) => {
+        const d = c.data;
+        return {
+          id: d.id,
+          author: d.author,
+          body: d.body || '',
+          created_utc: d.created_utc,
+          parent_id: d.parent_id,
+          permalink: d.permalink,
+          score: d.score,
+          author_flair_text: d.author_flair_text || '',
+          replies: d.replies && d.replies !== '' ? walk(d.replies) : [],
+        };
+      });
+  };
+
+  return walk(json[1]);
+}
+
 function buildTable(rows, columns) {
   const pad = (str, len, align = 'left') => {
     str = String(str ?? '').slice(0, len);
@@ -1057,6 +1106,7 @@ module.exports = {
   getSheetData,
   rowsToObjects,
   getRedditPosts,
+  getRedditComments,
   buildTable,
   getTeamLogoUrl,
   getConferenceLogoUrl,
