@@ -3,11 +3,13 @@
 //
 //  Heisman Score formula (intentionally offensive-heavy, with a
 //  team-success multiplier — this mirrors how real voters favor
-//  high-volume QBs/RBs on winning teams):
+//  high-volume QBs/RBs/WRs on winning teams). Rushing & receiving
+//  are weighted slightly higher than pure passing so skill players
+//  can actually crack the top 10.
 //
 //    passing : pssYds*0.10 + pssTD*10 − pssInt*15
-//    rushing : rusYds*0.15 + rusTD*10
-//    receiv. : recYds*0.15 + recTD*10 + rec*0.5
+//    rushing : rusYds*0.28 + rusTD*15
+//    receiv. : recYds*0.24 + recTD*14 + rec*1.2
 //    team    : + (teamWinPct * 150)
 // ============================================================
 
@@ -48,8 +50,8 @@ function computeHeismanScore(stats, teamWinPct) {
   const rec    = safeNumber(stats.rec);
 
   const passScore = pssYds * 0.10 + pssTD * 10 - pssInt * 15;
-  const rushScore = rusYds * 0.15 + rusTD * 10;
-  const recScore  = recYds * 0.15 + recTD * 10 + rec * 0.5;
+  const rushScore = rusYds * 0.28 + rusTD * 15;
+  const recScore  = recYds * 0.24 + recTD * 14 + rec * 1.2;
   const teamBonus = (Number.isFinite(teamWinPct) ? teamWinPct : 0) * 150;
 
   return passScore + rushScore + recScore + teamBonus;

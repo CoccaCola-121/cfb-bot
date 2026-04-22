@@ -64,10 +64,23 @@ function scoreGame(homeRec, awayRec, homeCid, awayCid) {
   return combined - spread + p5;
 }
 
+// Week labels: regular weeks show "Week N", postseason weeks get themed titles.
+function weekTitle(day) {
+  const n = Number(day);
+  switch (n) {
+    case 13: return 'Conference Championship Week';
+    case 14: return 'Bowl Week';
+    case 15: return 'Playoff Quarterfinals';
+    case 16: return 'Playoff Semifinals';
+    case 18: return 'National Championship';
+    default: return `Week ${n}`;
+  }
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('weeklypreview')
-    .setDescription('Top 10 upcoming matchups, ranked by record + spread + slight P5 bias'),
+    .setDescription('Top 10 upcoming matchups ranked by combined record and projected closeness'),
 
   async execute(interaction) {
     await interaction.deferReply();
@@ -142,11 +155,11 @@ module.exports = {
     });
 
     const embed = new EmbedBuilder()
-      .setTitle(`📺 Weekly Preview — Day ${nextDay}`)
+      .setTitle(`📺 Weekly Preview — ${weekTitle(nextDay)}`)
       .setColor(0x8e44ad)
       .setDescription(lines.join('\n\n'))
       .setFooter({
-        text: `Ranked across ${ranked.length} upcoming game${ranked.length === 1 ? '' : 's'}. Slight P5 bias applied.`,
+        text: `Ranked across ${ranked.length} upcoming game${ranked.length === 1 ? '' : 's'}.`,
       })
       .setTimestamp();
 

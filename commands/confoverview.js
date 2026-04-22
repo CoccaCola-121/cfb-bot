@@ -5,6 +5,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { fetchSheetCsv, normalize } = require('../utils/sheets');
 const {
   getLatestLeagueData,
   getCurrentSeason,
@@ -16,6 +17,58 @@ const {
   safeNumber,
   formatRecord,
 } = require('../utils/data');
+
+const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
+const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
+
+// Count distinct teams in the conference that have a listed coach on the
+// NZCFL Info → Coach sheet. Returns null if the sheet can't be fetched.
+async function countCoachedTeams(leagueData, confCid) {
+  try {
+    const rows = await fetchSheetCsv(COACH_SHEET_ID, COACH_SHEET_TAB);
+    if (!Array.isArray(rows) || !rows.length) return null;
+
+    // Same header logic used in /coachleaderboard.
+    let hi = -1;
+    for (let i = 0; i < Math.min(rows.length, 4); i++) {
+      if (rows[i].some(c => {
+        const s = String(c || '').toLowerCase();
+        return s.includes('coach') && s !== 'coach rankings';
+      })) {
+        hi = i;
+        break;
+      }
+    }
+    if (hi === -1) hi = 1;
+
+    // Build a normalized set of identifiers for every team in this conference.
+    const confTeams = (leagueData.teams || []).filter(
+      (t) => !t.disabled && t.cid === confCid
+    );
+    const confTeamKeys = new Set();
+    for (const t of confTeams) {
+      [getTeamName(t), t.region, t.name, t.abbrev]
+        .map((x) => normalize(x || ''))
+        .filter(Boolean)
+        .forEach((k) => confTeamKeys.add(k));
+    }
+
+    // Each row has a team in column 1 and coach in column 0. Count rows
+    // whose team name matches any identifier for a conference team.
+    const coachedTeamKeys = new Set();
+    for (let i = hi + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const coach = String(r[0] || '').trim();
+      const team  = String(r[1] || '').trim();
+      if (!coach || !team) continue;
+      const tn = normalize(team);
+      if (confTeamKeys.has(tn)) coachedTeamKeys.add(tn);
+    }
+    return coachedTeamKeys.size;
+  } catch {
+    return null;
+  }
+}
 
 function buildTeamRow(team, currentSeason) {
   const seas = getLatestTeamSeason(team, currentSeason);
@@ -160,6 +213,12 @@ module.exports = {
       `Avg Pass Yds: **${avg(rows, 'pssYds').toFixed(0)}**  •  Avg Rush Yds: **${avg(rows, 'rusYds').toFixed(0)}**`,
     ];
 
+    const coachedCount = await countCoachedTeams(leagueData, conf.cid);
+    const coachValue =
+      coachedCount === null
+        ? 'Coach sheet unavailable'
+        : `**${coachedCount}** of **${rows.length}** teams have a listed head coach`;
+
     const embed = new EmbedBuilder()
       .setTitle(`🏟️ ${confAbbrev} — Conference Overview`)
       .setColor(0x16a085)
@@ -185,8 +244,8 @@ module.exports = {
           inline: false,
         },
         {
-          name: '📋 Teams',
-          value: `${rows.length} active team${rows.length === 1 ? '' : 's'}`,
+          name: '🧢 Coaching',
+          value: coachValue,
           inline: false,
         }
       )
