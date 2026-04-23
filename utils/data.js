@@ -947,15 +947,54 @@ function rowsToObjects(rows) {
   );
 }
 
-// Reddit has been increasingly aggressive about 403ing requests that look
-// like scrapers. The rules that help in practice:
-//   • Use a descriptive User-Agent in the "<platform>:<app>:<ver> (by /u/x)"
-//     shape that Reddit's API docs recommend.
-//   • Fall back to old.reddit.com when www.reddit.com returns 403.
-//   • Also try the unauth OAuth JSON endpoint as a last resort.
+// Reddit aggressively 403s datacenter IPs (Railway, etc.) on the public
+// www.reddit.com / old.reddit.com endpoints regardless of User-Agent. The
+// only reliable fix is OAuth 2.0: register a "script" or "web" app at
+// https://www.reddit.com/prefs/apps and set env vars:
+//   REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
+// With those set we hit oauth.reddit.com with a bearer token which is NOT
+// IP-blocked. We still fall back to the public endpoints for local dev.
 const REDDIT_USER_AGENT =
   process.env.REDDIT_USER_AGENT ||
-  'node:nzcfl-discord-bot:v1.1 (by /u/nzcfl-league-bot)';
+  'node:nzcfl-discord-bot:v1.2 (by /u/nzcfl-league-bot)';
+
+// Token cache so we don't re-auth on every request.
+let redditTokenCache = { token: null, expiresAt: 0 };
+
+async function getRedditAccessToken() {
+  const clientId = process.env.REDDIT_CLIENT_ID;
+  const clientSecret = process.env.REDDIT_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+
+  const now = Date.now();
+  if (redditTokenCache.token && redditTokenCache.expiresAt > now + 30_000) {
+    return redditTokenCache.token;
+  }
+
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const res = await fetchFn('https://www.reddit.com/api/v1/access_token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': REDDIT_USER_AGENT,
+    },
+    body: 'grant_type=client_credentials',
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `Reddit OAuth token request failed: ${res.status} ${body.slice(0, 200)}`
+    );
+  }
+  const json = await res.json();
+  redditTokenCache = {
+    token: json.access_token,
+    // expires_in is seconds; leave a 60s buffer.
+    expiresAt: now + (Number(json.expires_in || 3600) - 60) * 1000,
+  };
+  return redditTokenCache.token;
+}
 
 async function fetchRedditJson(path, qs = {}) {
   // path is always "/r/<sub>/new.json" or "/comments/<id>.json" (absolute path).
@@ -964,43 +1003,68 @@ async function fetchRedditJson(path, qs = {}) {
     .join('&');
   const suffix = queryString ? `?${queryString}` : '';
 
-  const hosts = ['www.reddit.com', 'old.reddit.com'];
-  let lastStatus = 0;
-  let lastBody = '';
+  const attempts = [];
 
-  for (const host of hosts) {
-    const url = `https://${host}${path}${suffix}`;
-    let res;
+  // Preferred: OAuth bearer (bypasses Reddit's IP-based blocks).
+  const token = await getRedditAccessToken().catch((err) => {
+    attempts.push(`oauth token: ${err.message}`);
+    return null;
+  });
+  if (token) {
+    // oauth.reddit.com paths shouldn't include the trailing .json — strip it.
+    const oauthPath = path.replace(/\.json$/i, '');
+    const url = `https://oauth.reddit.com${oauthPath}${suffix}`;
     try {
-      res = await fetchFn(url, {
+      const res = await fetchFn(url, {
         headers: {
+          Authorization: `Bearer ${token}`,
           'User-Agent': REDDIT_USER_AGENT,
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
+          Accept: 'application/json',
         },
-        redirect: 'follow',
       });
+      if (res.ok) return res.json();
+      const body = await res.text().catch(() => '');
+      attempts.push(`oauth ${res.status}: ${body.slice(0, 120)}`);
+      // 401 means the token is stale — force a refresh next call.
+      if (res.status === 401) redditTokenCache = { token: null, expiresAt: 0 };
     } catch (err) {
-      lastStatus = 0;
-      lastBody = err.message || 'network error';
-      continue;
+      attempts.push(`oauth err: ${err.message}`);
     }
-
-    if (res.ok) return res.json();
-
-    lastStatus = res.status;
-    try {
-      lastBody = (await res.text()).slice(0, 200);
-    } catch {
-      lastBody = '';
-    }
-
-    // Only bother falling back to the other host on 403/429/5xx.
-    if (![403, 429, 500, 502, 503, 504].includes(res.status)) break;
   }
 
+  // Fallback: public JSON endpoints with a browser-ish User-Agent chain.
+  const publicAgents = [
+    REDDIT_USER_AGENT,
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  ];
+  const hosts = ['www.reddit.com', 'old.reddit.com'];
+
+  for (const ua of publicAgents) {
+    for (const host of hosts) {
+      const url = `https://${host}${path}${suffix}`;
+      try {
+        const res = await fetchFn(url, {
+          headers: {
+            'User-Agent': ua,
+            Accept: 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+          redirect: 'follow',
+        });
+        if (res.ok) return res.json();
+        const body = await res.text().catch(() => '');
+        attempts.push(`${host} ${res.status}: ${body.slice(0, 120)}`);
+      } catch (err) {
+        attempts.push(`${host} err: ${err.message}`);
+      }
+    }
+  }
+
+  const hint = process.env.REDDIT_CLIENT_ID
+    ? ''
+    : ' — set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET to use OAuth, which is not IP-blocked';
   throw new Error(
-    `Reddit API returned ${lastStatus}${lastBody ? ` — ${lastBody}` : ''}`
+    `Reddit API unreachable after ${attempts.length} attempt(s)${hint}. Last: ${attempts.slice(-1)[0] || 'unknown'}`
   );
 }
 

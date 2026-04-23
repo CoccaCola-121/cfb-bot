@@ -109,13 +109,23 @@ async function fetchStatsRows() {
 // ---------- historical data tab (for "Last Ranked") ----------
 
 async function fetchHistoricalRows() {
-  const candidates = ['Historical Data', 'Historical', 'History'];
+  const candidates = [
+    'Historical Data',
+    'Historical',
+    'History',
+    'Rankings History',
+    'Rankings',
+    'Weekly Rankings',
+  ];
   for (const tab of candidates) {
     try {
       const rows = await fetchSheetCsv(SHEET_ID, tab);
       if (Array.isArray(rows) && rows.length > 1) return rows;
-    } catch {
-      // try next
+    } catch (err) {
+      // try next; log once per failure for visibility
+      if (process.env.DEBUG_RANKINGSTATS) {
+        console.warn(`[rankingstats] named tab "${tab}" failed:`, err.message);
+      }
     }
   }
   const gid = process.env.RANKINGS_HISTORY_HISTORICAL_GID;
@@ -123,11 +133,42 @@ async function fetchHistoricalRows() {
     try {
       const rows = await fetchSheetCsv(SHEET_ID, gid, true);
       if (Array.isArray(rows) && rows.length > 1) return rows;
-    } catch {
-      // ignore
+    } catch (err) {
+      if (process.env.DEBUG_RANKINGSTATS) {
+        console.warn('[rankingstats] historical gid fetch failed:', err.message);
+      }
     }
   }
   return null;
+}
+
+// Pull a 4-digit year out of an arbitrary header cell. Accepts:
+//   "2060 Preseason"           -> 2060
+//   "60 Preseason"             -> 2060 (prepend "20")
+//   "60 Playoff Rankings"      -> 2060
+//   "CCG 60"                   -> 2060
+//   "2060"                     -> 2060
+// Returns '' if no plausible year is found.
+function extractYearFromHeader(header) {
+  const s = String(header || '');
+  if (!s.trim()) return '';
+
+  const m4 = s.match(/\b(20\d{2})\b/);
+  if (m4) return m4[1];
+
+  // Two-digit year with an adjacent season/week/playoff keyword.
+  const m2 =
+    s.match(
+      /\b([5-9]\d|[0-4]\d)\s*(pre[-\s]?seasons?|playoffs?|seasons?|bowls?|ccg|champions?(?:hip)?|rankings?)/i
+    ) ||
+    s.match(
+      /\b(pre[-\s]?seasons?|playoffs?|seasons?|bowls?|ccg|champions?(?:hip)?|rankings?)\s+([5-9]\d|[0-4]\d)\b/i
+    );
+  if (m2) {
+    const twoDigit = /\d{2}/.exec(m2[0])?.[0];
+    if (twoDigit) return `20${twoDigit}`;
+  }
+  return '';
 }
 
 /**
@@ -166,11 +207,12 @@ function findLastRankedInfo(historicalRows, team) {
   }
   if (matchCol < 0) return null;
 
-  // Week label: prefer the first row (in the first few rows) whose value
+  // Week label: prefer the first row (in the first ~10 rows) whose value
   // at matchCol looks like a week/CCG/playoff header. Falls back to the
-  // first non-empty header cell.
-  const headerCandidates = Math.min(historicalRows.length, 6);
-  const labelPattern = /(week\s*\d+|pre[-\s]?season|ccg|championship|playoff|quarterfinal|semifinal|bowl|champion)/i;
+  // first non-empty header cell. We check more rows now because the user
+  // mentioned headers sometimes live in row 3 (1-indexed).
+  const headerCandidates = Math.min(historicalRows.length, 10);
+  const labelPattern = /(week\s*\d+|pre[-\s]?season|ccg|championship|playoff|quarterfinal|semifinal|bowl|champion|rankings?)/i;
   let label = '';
   for (let r = 0; r < headerCandidates; r++) {
     const h = String(historicalRows[r]?.[matchCol] || '').trim();
@@ -183,14 +225,17 @@ function findLastRankedInfo(historicalRows, team) {
     }
   }
 
-  // Year: nearest "20XX Preseason" header to the left of matchCol.
+  // Year: scan columns right-to-left starting at matchCol. Try the label
+  // itself first (e.g. "60 Playoff Rankings" -> 2060), then fall back to
+  // any header with a plausible year.
   let year = '';
-  const yearPattern = /\b(20\d{2})\s*pre[-\s]?season/i;
+  if (label) year = extractYearFromHeader(label);
+
   for (let c = matchCol; c >= 0 && !year; c--) {
     for (let r = 0; r < headerCandidates; r++) {
       const h = String(historicalRows[r]?.[c] || '').trim();
-      const m = h.match(yearPattern);
-      if (m) { year = m[1]; break; }
+      const y = extractYearFromHeader(h);
+      if (y) { year = y; break; }
     }
   }
 
@@ -480,10 +525,30 @@ module.exports = {
 
     let lastRankedDisplay = '—';
     if (lastRanked) {
-      const parts = [];
-      if (lastRanked.year) parts.push(lastRanked.year);
-      if (lastRanked.label) parts.push(lastRanked.label);
-      if (parts.length) lastRankedDisplay = `**${parts.join(' ')}**`;
+      const year = lastRanked.year || '';
+      const label = lastRanked.label || '';
+      let text = '';
+      if (year && label) {
+        if (label.includes(year)) {
+          // Label already has the full 4-digit year, use as-is.
+          text = label;
+        } else if (
+          /^\d{2}\b/.test(label) &&
+          year.length === 4 &&
+          year.endsWith(label.slice(0, 2))
+        ) {
+          // Label starts with 2-digit year matching our 4-digit year:
+          // "60 Playoff Rankings" -> "2060 Playoff Rankings"
+          text = `20${label}`;
+        } else {
+          text = `${year} ${label}`;
+        }
+      } else if (label) {
+        text = label;
+      } else if (year) {
+        text = year;
+      }
+      if (text) lastRankedDisplay = `**${text}**`;
     }
 
     const embed = new EmbedBuilder()
