@@ -7,6 +7,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
 const { fetchSheetCsv, normalize } = require('../utils/sheets');
+const { getUserCoachName } = require('../utils/userMap');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -215,7 +216,7 @@ module.exports = {
     .setName('coachstats')
     .setDescription('Look up an active coach')
     .addStringOption(opt =>
-      opt.setName('name').setDescription('Coach name or team').setRequired(true)
+      opt.setName('name').setDescription('Coach name or team (defaults to you if you ran /iam)').setRequired(false)
     ),
 
   async execute(interaction) {
@@ -278,7 +279,18 @@ module.exports = {
     const ranked = computeRanks(coaches);
     if (!ranked.length) return interaction.editReply('❌ No coach data found.');
 
-    const query = normalize(interaction.options.getString('name'));
+    const nameArg = interaction.options.getString('name');
+    let queryRaw = nameArg;
+    if (!queryRaw) {
+      queryRaw = getUserCoachName(interaction.user.id);
+      if (!queryRaw) {
+        return interaction.editReply(
+          '❌ No coach specified and no linked coach found. ' +
+            'Pass a name (e.g. `name: Bob Smith`) or run `/iam coach:<your name>` first.'
+        );
+      }
+    }
+    const query = normalize(queryRaw);
 
     function matches(c) {
       const cn = normalize(c.coach);
@@ -291,7 +303,7 @@ module.exports = {
     }
 
     const found = ranked.filter(matches);
-    if (!found.length) return interaction.editReply(`❌ No active coach found matching **${interaction.options.getString('name')}**.`);
+    if (!found.length) return interaction.editReply(`❌ No active coach found matching **${queryRaw}**.`);
 
     if (found.length > 6) {
       const list = found.slice(0, 8).map(c => `• ${c.coach} (${c.team})`).join('\n');

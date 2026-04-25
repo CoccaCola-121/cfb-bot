@@ -24,6 +24,7 @@ const {
   getTeamAliases: sheetsGetTeamAliases,
   normalize: sheetsNormalize,
 } = require('../utils/sheets');
+const { getUserTeam } = require('../utils/userMap');
 
 const INFO_SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||
@@ -339,8 +340,8 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('team')
-        .setDescription('Team abbreviation, e.g. MSU')
-        .setRequired(true)
+        .setDescription('Team abbreviation, e.g. MSU (defaults to your linked team if you ran /iam)')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -351,15 +352,29 @@ module.exports = {
       return interaction.editReply('❌ No league data loaded. Ask a mod to run `/loadweek`.');
     }
 
-    const query = interaction.options.getString('team').toUpperCase().trim();
+    const teamArg = interaction.options.getString('team');
     const currentSeason = Number(getCurrentSeason(leagueData));
 
-    const team = leagueData.teams.find(
-      (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === query
-    );
+    let team = null;
+    let query = null;
 
-    if (!team) {
-      return interaction.editReply(`❌ No active team found with abbreviation **${query}**.`);
+    if (teamArg) {
+      query = teamArg.toUpperCase().trim();
+      team = leagueData.teams.find(
+        (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === query
+      );
+      if (!team) {
+        return interaction.editReply(`❌ No active team found with abbreviation **${query}**.`);
+      }
+    } else {
+      team = await getUserTeam(leagueData, interaction.user.id);
+      if (!team) {
+        return interaction.editReply(
+          '❌ No team specified and no linked coach found. ' +
+            'Pass a team (e.g. `team: MSU`) or run `/iam coach:<your name>` first.'
+        );
+      }
+      query = team.abbrev;
     }
 
     const season = getLatestTeamSeason(team, currentSeason);

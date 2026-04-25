@@ -4,6 +4,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getTeamSchedule } = require('../utils/data');
+const { getUserTeam } = require('../utils/userMap');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -12,8 +13,8 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('team')
-        .setDescription('Team abbreviation, e.g. MSU')
-        .setRequired(true)
+        .setDescription('Team abbreviation, e.g. MSU (defaults to your linked team if you ran /iam)')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -24,7 +25,22 @@ module.exports = {
       return interaction.editReply('❌ No league data loaded.');
     }
 
-    const abbrev = interaction.options.getString('team').toUpperCase().trim();
+    const teamArg = interaction.options.getString('team');
+    let abbrev = null;
+
+    if (teamArg) {
+      abbrev = teamArg.toUpperCase().trim();
+    } else {
+      const userTeam = await getUserTeam(leagueData, interaction.user.id);
+      if (!userTeam) {
+        return interaction.editReply(
+          '❌ No team specified and no linked coach found. ' +
+            'Pass a team (e.g. `team: MSU`) or run `/iam coach:<your name>` first.'
+        );
+      }
+      abbrev = String(userTeam.abbrev || '').toUpperCase().trim();
+    }
+
     const result = getTeamSchedule(leagueData, abbrev);
 
     if (!result) {

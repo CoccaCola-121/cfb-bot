@@ -12,6 +12,7 @@ const {
   safeNumber,
   getCurrentSeason,
 } = require('../utils/data');
+const { getUserTeam } = require('../utils/userMap');
 
 function findTeamByAbbrev(leagueData, abbrev) {
   return (leagueData.teams || []).find(
@@ -249,8 +250,8 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('team')
-        .setDescription('Team abbreviation, e.g. MSU')
-        .setRequired(true)
+        .setDescription('Team abbreviation, e.g. MSU (defaults to your linked team if you ran /iam)')
+        .setRequired(false)
     )
     .addIntegerOption((opt) =>
       opt
@@ -267,11 +268,25 @@ module.exports = {
       return interaction.editReply('❌ No game data loaded.');
     }
 
-    const requestedAbbrev = interaction.options.getString('team').toUpperCase().trim();
-    const requestedTeam = findTeamByAbbrev(leagueData, requestedAbbrev);
+    const teamArg = interaction.options.getString('team');
+    let requestedTeam = null;
+    let requestedAbbrev = null;
 
-    if (!requestedTeam) {
-      return interaction.editReply(`❌ No active team with abbreviation **${requestedAbbrev}**.`);
+    if (teamArg) {
+      requestedAbbrev = teamArg.toUpperCase().trim();
+      requestedTeam = findTeamByAbbrev(leagueData, requestedAbbrev);
+      if (!requestedTeam) {
+        return interaction.editReply(`❌ No active team with abbreviation **${requestedAbbrev}**.`);
+      }
+    } else {
+      requestedTeam = await getUserTeam(leagueData, interaction.user.id);
+      if (!requestedTeam) {
+        return interaction.editReply(
+          '❌ No team specified and no linked coach found. ' +
+            'Pass a team (e.g. `team: MSU`) or run `/iam coach:<your name>` first.'
+        );
+      }
+      requestedAbbrev = requestedTeam.abbrev;
     }
 
     const teamMap = getTeamMap(leagueData);

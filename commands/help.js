@@ -16,6 +16,15 @@ module.exports = {
       .setDescription('All commands for your 120-team college football league.')
       .addFields(
         {
+          name: '🪪 Personalize',
+          value: [
+            '`/iam coach:<your name>` — Link your Discord ID to your coach so commands default to your team',
+            '`/iam` — Show your current link',
+            '`/iam clear:true` — Remove your link',
+            '_Once linked, most team/coach commands work without arguments and follow you when you change teams._',
+          ].join('\n'),
+        },
+        {
           name: '📊 Stats & Standings',
           value: [
             '`/standings <conference>` — Conference standings split by division',

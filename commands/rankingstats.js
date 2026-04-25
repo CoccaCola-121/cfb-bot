@@ -14,6 +14,7 @@ const {
   fetchSheetCsv,
   matchesTeam: sheetMatchesTeam,
 } = require('../utils/sheets');
+const { getUserTeam } = require('../utils/userMap');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
@@ -478,8 +479,8 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('team')
-        .setDescription('Team abbreviation, e.g. OSU')
-        .setRequired(true)
+        .setDescription('Team abbreviation, e.g. OSU (defaults to your linked team if you ran /iam)')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -490,15 +491,29 @@ module.exports = {
       return interaction.editReply('❌ No league data loaded.');
     }
 
-    const abbrev = interaction.options.getString('team').toUpperCase().trim();
-    const team = leagueData.teams.find(
-      (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === abbrev
-    );
+    const teamArg = interaction.options.getString('team');
+    let team = null;
+    let abbrev = null;
 
-    if (!team) {
-      return interaction.editReply(
-        `❌ No active team with abbreviation **${abbrev}**.`
+    if (teamArg) {
+      abbrev = teamArg.toUpperCase().trim();
+      team = leagueData.teams.find(
+        (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === abbrev
       );
+      if (!team) {
+        return interaction.editReply(
+          `❌ No active team with abbreviation **${abbrev}**.`
+        );
+      }
+    } else {
+      team = await getUserTeam(leagueData, interaction.user.id);
+      if (!team) {
+        return interaction.editReply(
+          '❌ No team specified and no linked coach found. ' +
+            'Pass a team (e.g. `team: OSU`) or run `/iam coach:<your name>` first.'
+        );
+      }
+      abbrev = String(team.abbrev || '').toUpperCase().trim();
     }
 
     const [{ rows }, historicalRows] = await Promise.all([

@@ -6,6 +6,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamName } = require('../utils/data');
 const { fetchSheetCsv, normalize, matchesTeam } = require('../utils/sheets');
+const { getUserTeam } = require('../utils/userMap');
 
 const SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||
@@ -87,7 +88,7 @@ module.exports = {
     .setName('ooc')
     .setDescription("Show a team's out-of-conference schedule")
     .addStringOption((opt) =>
-      opt.setName('team').setDescription('Team abbreviation, e.g. BUF').setRequired(true)
+      opt.setName('team').setDescription('Team abbreviation, e.g. BUF (defaults to your linked team if you ran /iam)').setRequired(false)
     )
     .addIntegerOption((opt) =>
       opt.setName('year').setDescription('Year (defaults to current season + 1)').setRequired(false)
@@ -99,14 +100,29 @@ module.exports = {
     const leagueData = getLatestLeagueData();
     if (!leagueData?.teams) return interaction.editReply('❌ No league data loaded.');
 
-    const query      = interaction.options.getString('team').toUpperCase().trim();
+    const teamArg = interaction.options.getString('team');
     const currentSeason = Number(getCurrentSeason(leagueData));
     const targetYear = interaction.options.getInteger('year') || (currentSeason + 1);
 
-    const team = leagueData.teams.find(
-      (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === query
-    );
-    if (!team) return interaction.editReply(`❌ No active team found with abbreviation **${query}**.`);
+    let team = null;
+    let query = null;
+
+    if (teamArg) {
+      query = teamArg.toUpperCase().trim();
+      team = leagueData.teams.find(
+        (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === query
+      );
+      if (!team) return interaction.editReply(`❌ No active team found with abbreviation **${query}**.`);
+    } else {
+      team = await getUserTeam(leagueData, interaction.user.id);
+      if (!team) {
+        return interaction.editReply(
+          '❌ No team specified and no linked coach found. ' +
+            'Pass a team (e.g. `team: BUF`) or run `/iam coach:<your name>` first.'
+        );
+      }
+      query = String(team.abbrev || '').toUpperCase().trim();
+    }
 
     let rows;
     try {

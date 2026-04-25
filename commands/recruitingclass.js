@@ -5,6 +5,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamName, getTeamLogoUrl } = require('../utils/data');
 const { fetchSheetCsv, normalize, matchesTeam, getTeamAliases, safeNum } = require('../utils/sheets');
+const { getUserTeam } = require('../utils/userMap');
 
 const INFO_SHEET_ID    = process.env.NZCFL_INFO_SHEET_ID || process.env.GOOGLE_SHEET_ID || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const RANKS_SHEET_ID   = process.env.NZCFL_RECRUITING_RANKS_SHEET_ID   || '1VWzSOnixaQlJBQOw6zAyKdfo_XFhPuTFKO_5noKQEq4';
@@ -178,7 +179,7 @@ module.exports = {
     .setName('recruitingclass')
     .setDescription('Show upcoming recruiting class for a team')
     .addStringOption((opt) =>
-      opt.setName('team').setDescription('Team abbreviation, e.g. MSU').setRequired(true)
+      opt.setName('team').setDescription('Team abbreviation, e.g. MSU (defaults to your linked team if you ran /iam)').setRequired(false)
     ),
 
   async execute(interaction) {
@@ -188,9 +189,24 @@ module.exports = {
 
     const currentSeason    = Number(getCurrentSeason(leagueData));
     const recruitSheetName = `${currentSeason} Recruiting`;
-    const abbrev = interaction.options.getString('team').toUpperCase().trim();
-    const team   = leagueData.teams.find((t) => !t.disabled && String(t.abbrev || '').toUpperCase() === abbrev);
-    if (!team) return interaction.editReply(`❌ No active team with abbreviation **${abbrev}**.`);
+    const teamArg = interaction.options.getString('team');
+    let abbrev = null;
+    let team = null;
+
+    if (teamArg) {
+      abbrev = teamArg.toUpperCase().trim();
+      team = leagueData.teams.find((t) => !t.disabled && String(t.abbrev || '').toUpperCase() === abbrev);
+      if (!team) return interaction.editReply(`❌ No active team with abbreviation **${abbrev}**.`);
+    } else {
+      team = await getUserTeam(leagueData, interaction.user.id);
+      if (!team) {
+        return interaction.editReply(
+          '❌ No team specified and no linked coach found. ' +
+            'Pass a team (e.g. `team: MSU`) or run `/iam coach:<your name>` first.'
+        );
+      }
+      abbrev = String(team.abbrev || '').toUpperCase().trim();
+    }
 
     let recruitRows, ranks247Rows;
     try {
