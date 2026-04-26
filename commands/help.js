@@ -21,7 +21,10 @@ module.exports = {
             '`/iam coach:<your name>` — Link your Discord ID to your coach so commands default to your team',
             '`/iam` — Show your current link',
             '`/iam clear:true` — Remove your link',
-            '_Once linked, most team/coach commands work without arguments and follow you when you change teams._',
+            '`/recordupdate year:<yr> wins:<n> losses:<n>` — Hard-overwrite your W/L for a specific year (mid-season hires/departures)',
+            '`/recordupdate` — Show all your record overrides',
+            '`/recordupdate year:<yr> clear:true` — Remove that year\'s override (or `clear:true` alone to remove all)',
+            '_Once linked, most team/coach commands work without arguments and follow you when you change teams. Record overrides only affect your linked coach._',
           ].join('\n'),
         },
         {

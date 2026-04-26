@@ -8,6 +8,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
 const { fetchSheetCsv, normalize } = require('../utils/sheets');
 const { getUserCoachName } = require('../utils/userMap');
+const { applyOverridesToResume } = require('../utils/coachOverrides');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -270,10 +271,15 @@ module.exports = {
       };
     }
 
-    // Attach resume data to each CSV coach
+    // Attach resume data to each CSV coach.
+    // Order matters: first patch the live current-season W/L on top of the
+    // resume sheet, then apply this coach's manual /recordupdate overrides
+    // so they hard-overwrite the affected year (and re-derive career totals).
     const coaches = csvCoaches.map(c => {
       const rawResume = resumeMap.get(normalize(c.coach)) || null;
-      return { ...c, resume: patchCurrentSeason(c, rawResume) };
+      const patched   = patchCurrentSeason(c, rawResume);
+      const finalResume = applyOverridesToResume(patched, c.coach);
+      return { ...c, resume: finalResume };
     });
 
     const ranked = computeRanks(coaches);

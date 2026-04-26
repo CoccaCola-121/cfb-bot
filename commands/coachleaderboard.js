@@ -18,6 +18,7 @@ const {
   getTeamName,
   safeNumber,
 } = require('../utils/data');
+const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -113,7 +114,9 @@ function patchRecordWithCurrentSeason(leagueData, coach, record) {
 }
 
 // ── Parse resume sheet for career W/L ───────────────────────
-// Returns Map<normalizedCoachName, { wins, losses, pct }>
+// Returns Map<normalizedCoachName, { wins, losses, pct, record, history }>
+// `history` is [{ year, record }] — needed so /recordupdate overrides can
+// subtract the original year's W/L before adding the new one.
 function parseResumeSheet(rows) {
   const map = new Map();
 
@@ -130,6 +133,17 @@ function parseResumeSheet(rows) {
   const totalCol = header.findIndex(h => h.toLowerCase() === 'total');
   if (coachCol === -1 || totalCol === -1) return map;
 
+  // Year columns appear twice (record block, then team block). We only
+  // need the first (record) block here.
+  const yearIdxs = header.map((h, i) => (/^\d{4}$/.test(h) ? i : -1)).filter(i => i >= 0);
+  const seen = new Set(); let splitAt = -1;
+  for (let i = 0; i < yearIdxs.length; i++) {
+    const y = header[yearIdxs[i]];
+    if (seen.has(y)) { splitAt = i; break; }
+    seen.add(y);
+  }
+  const recordYearCols = splitAt >= 0 ? yearIdxs.slice(0, splitAt) : yearIdxs;
+
   for (let i = hi + 1; i < rows.length; i++) {
     const r     = rows[i];
     const coach = (r[coachCol] || '').trim();
@@ -142,11 +156,21 @@ function parseResumeSheet(rows) {
     const wins   = parseInt(m[1]);
     const losses = parseInt(m[2]);
     const games  = wins + losses;
+
+    const history = [];
+    for (const col of recordYearCols) {
+      const y = header[col];
+      const v = (r[col] || '').trim();
+      if (v && /^\d{1,2}-\d{1,2}$/.test(v)) history.push({ year: y, record: v });
+    }
+    history.sort((a, b) => +a.year - +b.year);
+
     map.set(normalize(coach), {
       wins,
       losses,
       pct: games > 0 ? wins / games : 0,
       record: total,
+      history,
     });
   }
   return map;
@@ -204,11 +228,19 @@ module.exports = {
     // Attach career record to each coach, patched with the current in-progress
     // season from the latest league export (resume sheet totals exclude live
     // seasons, so /teamstats & /coachstats would otherwise show more wins).
+    // Then apply the coach's manual /recordupdate overrides on top so any
+    // half-season adjustments are reflected on the leaderboard too.
     const enriched = coaches.map(c => {
-      const baseRecord = recordMap.get(normalize(c.coach)) || null;
+      const baseRecord  = recordMap.get(normalize(c.coach)) || null;
+      const livePatched = patchRecordWithCurrentSeason(leagueData, c, baseRecord);
+      const finalRecord = applyOverridesToLeaderboardRecord(
+        livePatched,
+        c.coach,
+        baseRecord?.history || null
+      );
       return {
         ...c,
-        record: patchRecordWithCurrentSeason(leagueData, c, baseRecord),
+        record: finalRecord,
       };
     });
 
