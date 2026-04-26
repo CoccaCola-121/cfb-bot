@@ -216,43 +216,109 @@ const NORMALIZED_CONFERENCE_LOGO_OVERRIDES = new Map(
 
 // ── File helpers ─────────────────────────────────────────────
 
-function getLatestLeagueData() {
-  const files = fs.readdirSync(DATA_DIR)
-    .filter(isLeagueFile)
-    .map((f) => ({
-      name: f,
-      time: fs.statSync(path.join(DATA_DIR, f)).mtime.getTime(),
-    }))
-    .sort((a, b) => b.time - a.time);
+// In-memory cache for the parsed league JSON. We re-parse only when the
+// latest file's path or mtime changes — saves a 39 MB gunzip + JSON.parse
+// (~hundreds of ms) on every command invocation.
+let _leagueCache = { path: null, mtime: 0, data: null };
 
+function listLeagueFiles() {
+  return fs.readdirSync(DATA_DIR)
+    .filter(isLeagueFile)
+    .map((f) => {
+      const p = path.join(DATA_DIR, f);
+      const st = fs.statSync(p);
+      return { name: f, path: p, time: st.mtime.getTime(), size: st.size };
+    })
+    .sort((a, b) => b.time - a.time);
+}
+
+function getLatestLeagueData() {
+  const files = listLeagueFiles();
   if (files.length === 0) return null;
 
-  const filePath = path.join(DATA_DIR, files[0].name);
+  const latest = files[0];
+  if (_leagueCache.data &&
+      _leagueCache.path === latest.path &&
+      _leagueCache.mtime === latest.time) {
+    return _leagueCache.data;
+  }
+
   try {
-    if (files[0].name.endsWith('.json.gz')) {
-      const buffer = fs.readFileSync(filePath);
+    let parsed;
+    if (latest.name.endsWith('.json.gz')) {
+      const buffer = fs.readFileSync(latest.path);
       const jsonText = zlib.gunzipSync(buffer).toString('utf8');
-      return JSON.parse(jsonText);
+      parsed = JSON.parse(jsonText);
+    } else {
+      // Legacy .json support so old files still load
+      parsed = JSON.parse(fs.readFileSync(latest.path, 'utf8'));
     }
-    // Legacy .json support so old files still load
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+    // Build & attach a normalized team-name index once per load. Used by
+    // findTeamByName-style helpers in commands so they don't re-scan
+    // teams[] on every lookup. Stored as a non-enumerable so it doesn't
+    // bloat any future JSON.stringify of leagueData.
+    if (parsed && Array.isArray(parsed.teams)) {
+      const idx = new Map();
+      for (const t of parsed.teams) {
+        if (t.disabled) continue;
+        const aliases = [
+          getTeamName(t),
+          t.region,
+          t.name,
+          t.abbrev,
+        ].filter(Boolean);
+        for (const a of aliases) {
+          const k = String(a)
+            .toLowerCase()
+            .replace(/&/g, 'and')
+            .replace(/[^a-z0-9]/g, '');
+          if (k && !idx.has(k)) idx.set(k, t);
+        }
+      }
+      Object.defineProperty(parsed, '__teamIndex', {
+        value: idx, enumerable: false, writable: false, configurable: true,
+      });
+    }
+
+    _leagueCache = { path: latest.path, mtime: latest.time, data: parsed };
+    return parsed;
   } catch {
     return null;
   }
 }
 
-function pruneOldLeagueFiles() {
-  const files = fs.readdirSync(DATA_DIR)
-    .filter(isLeagueFile)
-    .map((f) => ({
-      name: f,
-      time: fs.statSync(path.join(DATA_DIR, f)).mtime.getTime(),
-    }))
-    .sort((a, b) => b.time - a.time);
+// Look up a team by region/name/abbrev/full-name. Uses the cached
+// normalized team index (built once per league load) for O(1) lookups.
+function findTeamByName(leagueData, query) {
+  if (!leagueData || !leagueData.teams || !query) return null;
+  const k = String(query)
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]/g, '');
+  if (!k) return null;
+  const idx = leagueData.__teamIndex;
+  if (idx) return idx.get(k) || null;
+  // Fallback: cache wasn't built (shouldn't happen), do a linear scan.
+  return leagueData.teams.find(
+    (t) => !t.disabled && (
+      [getTeamName(t), t.region, t.name, t.abbrev]
+        .filter(Boolean)
+        .some((a) => String(a).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '') === k)
+    )
+  ) || null;
+}
 
+// Force-clear the in-memory cache (used by /loadweek and /reloadcache).
+function invalidateLeagueCache() {
+  _leagueCache = { path: null, mtime: 0, data: null };
+}
+
+function pruneOldLeagueFiles() {
+  const files = listLeagueFiles();
   const toDelete = files.slice(MAX_SAVED_FILES);
   for (const f of toDelete) {
-    try { fs.unlinkSync(path.join(DATA_DIR, f.name)); } catch {}
+    try { fs.unlinkSync(f.path); } catch {}
   }
 }
 
@@ -265,6 +331,7 @@ function saveLeagueData(jsonString, label) {
   fs.writeFileSync(filePath, compressed);
 
   pruneOldLeagueFiles();
+  invalidateLeagueCache();
   return filename;
 }
 
@@ -1201,7 +1268,12 @@ function getConferenceLogoUrl(leagueData, cidOrAbbrevOrName) {
 }
 
 module.exports = {
+  DATA_DIR,
+  MAX_SAVED_FILES,
   getLatestLeagueData,
+  invalidateLeagueCache,
+  listLeagueFiles,
+  findTeamByName,
   saveLeagueData,
   safeNumber,
   formatPct,

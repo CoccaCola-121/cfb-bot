@@ -95,9 +95,17 @@ module.exports = {
       chunks.push(lines.slice(i, i + chunkSize));
     }
 
+    // Week 12 = Rivalry Week (every team plays its rival)
+    const RIVALRY_WEEK = 12;
+    const rivalryTag = week === RIVALRY_WEEK ? ' 🔥 Rivalry Week' : '';
+
     const embeds = chunks.map((chunk, idx) =>
       new EmbedBuilder()
-        .setTitle(idx === 0 ? `🏈 Week ${week} Scores (${games.length} games)` : `Week ${week} — continued`)
+        .setTitle(
+          idx === 0
+            ? `🏈 Week ${week} Scores${rivalryTag} (${games.length} games)`
+            : `Week ${week}${rivalryTag} — continued`
+        )
         .setColor(0x8b1a1a)
         .setDescription(chunk.join('\n'))
         .setFooter({ text: `Available weeks: ${availableWeeks.slice(0, 8).join(', ')}` })

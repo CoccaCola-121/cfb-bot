@@ -19,11 +19,11 @@ const {
   getScholarshipInfo,
 } = require('../utils/recruiting');
 const {
-  fetchSheetCsv,
   matchesTeam: sheetsMatchesTeam,
   getTeamAliases: sheetsGetTeamAliases,
   normalize: sheetsNormalize,
 } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
 
 const INFO_SHEET_ID =

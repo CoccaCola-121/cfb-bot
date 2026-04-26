@@ -8,7 +8,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { fetchSheetCsv, normalize } = require('./sheets');
+const { normalize } = require('./sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('./sheetCache');
 
 const DATA_DIR =
   process.env.RAILWAY_VOLUME_MOUNT_PATH ||

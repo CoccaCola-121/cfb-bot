@@ -51,6 +51,15 @@ module.exports = {
             '`/coachstats <name>` — Coach resume with career record, titles, history',
             '`/coachleaderboard [sort]` — Top coaches by formula, wins, win%, conf titles, or rings',
             '`/openpositions [view] [conference]` — Ranks open coaching jobs by attractiveness',
+            '`/dynastytracker [min] [coach]` — 5+ year tenures at one program (longest first)',
+          ].join('\n'),
+        },
+        {
+          name: '📜 History & Lore',
+          value: [
+            '`/championships [view] [coach]` — National-title roll call or conference-title leaders',
+            '`/teamhistory <team>` — Coaching eras, championship years, and current Rivalry Week opponent',
+            '`/trashtalk <team>` — Generate a (playful) jab at a rival, fueled by real stats',
           ].join('\n'),
         },
         {
@@ -79,6 +88,7 @@ module.exports = {
           name: '⚙️ Data Management (Mod Only)',
           value: [
             '`/loadweek [file or url] [label]` — Load a new Football-GM JSON export',
+            '`/datafiles` — Show stored league files + sheet cache state',
           ].join('\n'),
         },
       )

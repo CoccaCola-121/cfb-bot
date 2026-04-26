@@ -5,7 +5,8 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { fetchSheetCsv, normalize } = require('../utils/sheets');
+const { normalize } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const {
   getLatestLeagueData,
   getCurrentSeason,

@@ -12,7 +12,8 @@
 //  Extra alias pairs handle known mismatches between the two sheets.
 // ============================================================
 
-const { fetchSheetCsv, normalize } = require('./sheets');
+const { normalize } = require('./sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('./sheetCache');
 
 const CCG_SHEET_ID = '10xp0uWcijBFF7QDi3VjDC6LxWlH3ri7V9fi0KGPpko8';
 const CCG_TAB_NAME = 'Tabellenblatt1';

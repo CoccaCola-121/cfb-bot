@@ -10,7 +10,8 @@ const {
   getLatestTeamSeason,
   getConferenceName, getConferenceAbbrevFromName, safeNumber,
 } = require('../utils/data');
-const { fetchSheetCsv, normalize } = require('../utils/sheets');
+const { normalize } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';

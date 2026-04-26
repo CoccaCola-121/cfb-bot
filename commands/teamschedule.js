@@ -51,8 +51,11 @@ module.exports = {
       return interaction.editReply(`No games found for **${result.team.abbrev}**.`);
     }
 
+    // Week 12 = Rivalry Week (CFB tradition — every team plays its rival)
+    const RIVALRY_WEEK = 12;
     const lines = result.games.map((g) => {
-      return `**Week ${g.week ?? '?'}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})`;
+      const rivalry = g.week === RIVALRY_WEEK ? ' 🔥 *Rivalry Week*' : '';
+      return `**Week ${g.week ?? '?'}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})${rivalry}`;
     });
 
     const chunkSize = 20;

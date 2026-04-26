@@ -11,9 +11,9 @@ const {
   getTeamLogoUrl,
 } = require('../utils/data');
 const {
-  fetchSheetCsv,
   matchesTeam: sheetMatchesTeam,
 } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).

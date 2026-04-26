@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
 const zlib = require('zlib');
 const { saveLeagueData } = require('../utils/data');
+const { invalidateSheetCache } = require('../utils/sheetCache');
 
 // Helper: download a URL and return raw JSON text, decompressing .gz if needed
 async function downloadJsonText(url, filename) {
@@ -115,6 +116,10 @@ module.exports = {
     } catch (err) {
       return interaction.editReply(`❌ Failed to save the data: ${err.message}`);
     }
+
+    // After a new week is loaded, the resume sheet, coach sheet, etc. may have
+    // been updated too — wipe the sheet cache so the next command pulls fresh.
+    invalidateSheetCache();
 
     const embed = new EmbedBuilder()
       .setTitle('✅ League data loaded')

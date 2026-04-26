@@ -4,7 +4,8 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamName, getTeamLogoUrl } = require('../utils/data');
-const { fetchSheetCsv, normalize, matchesTeam, getTeamAliases, safeNum } = require('../utils/sheets');
+const { normalize, matchesTeam, getTeamAliases, safeNum } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
 
 const INFO_SHEET_ID    = process.env.NZCFL_INFO_SHEET_ID || process.env.GOOGLE_SHEET_ID || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';

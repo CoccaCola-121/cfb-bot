@@ -6,16 +6,16 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
-const { fetchSheetCsv, normalize } = require('../utils/sheets');
+const { normalize } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
+const { NAT_TITLE_ASTERISK, getNatTitleYears } = require('../utils/natTitles');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID      = '1607727992';
-
-const NAT_TITLE_ASTERISK = new Set(['legend', 'LEGEND']);
 
 // ── Parse Coach CSV ──────────────────────────────────────────
 function parseCoachCsv(rows) {
@@ -314,63 +314,6 @@ module.exports = {
     if (found.length > 6) {
       const list = found.slice(0, 8).map(c => `• ${c.coach} (${c.team})`).join('\n');
       return interaction.editReply(`Found ${found.length} matches — be more specific:\n${list}`);
-    }
-
-    // National title years from the NATIONAL_TITLE_ENTRIES list
-    const NAT_TITLE_ENTRIES = [
-      { year: '2016', aliases: ['evilman2011'] },
-      { year: '2017', aliases: ['unknownuser', '@unknownuser'] },
-      { year: '2018', aliases: ['benjay67'] },
-      { year: '2019', aliases: ['nick', '@nick'] },
-      { year: '2020', aliases: ['nick', '@nick'] },
-      { year: '2021', aliases: ['bigdragondaddy', '@bigdragondaddy'] },
-      { year: '2022', aliases: ['bigdragondaddy', '@bigdragondaddy'] },
-      { year: '2023', aliases: ['julio', '@julio'] },
-      { year: '2024', aliases: ['julio', '@julio'] },
-      { year: '2025', aliases: ['sezenack', '@sezenack'] },
-      { year: '2026', aliases: ['xboy623'] },
-      { year: '2027', aliases: ['@.', '.'] },
-      { year: '2028', aliases: ['mako22', 'mako_22'] },
-      { year: '2029', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
-      { year: '2030', aliases: ['citrojek', '@citrojek'] },
-      { year: '2031', aliases: ['thunderwolf53', '@thunderwolf53'] },
-      { year: '2032', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
-      { year: '2033', aliases: ['citrojek', '@citrojek'] },
-      { year: '2035', aliases: ['thedondraper'] },
-      { year: '2036', aliases: ['dogwoodmaple', '@dogwoodmaple'] },
-      { year: '2037', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
-      { year: '2038', aliases: ['angel', "angel's", "@angel's", '@angel'] },
-      { year: '2039', aliases: ['cashmikey', 'cashmikeygocats', '@cashmikey'] },
-      { year: '2040', aliases: ['unholy', '@unholy'] },
-      { year: '2041', aliases: ['thedondraper'] },
-      { year: '2042', aliases: ['jeremy', '@jeremy'] },
-      { year: '2043', aliases: ['sweatpantsdv', '@sweatpantsdv'] },
-      { year: '2044', aliases: ['bigdragondaddy', '@bigdragondaddy'] },
-      { year: '2045', aliases: ['vin', '@vin'] },
-      { year: '2046', aliases: ['aeroman', '@aeroman'] },
-      { year: '2047', aliases: ['circl', '@circl'] },
-      { year: '2048', aliases: ['jt', '@jt'] },
-      { year: '2049', aliases: ['poke', '@poke'] },
-      { year: '2050', aliases: ['jt', '@jt'] },
-      { year: '2051', aliases: ['coachmrcap', '@coachmrcap', 'mrcap', '@mr.cap'] },
-      { year: '2052', aliases: ['dogwoodmaple', '@dogwoodmaple'] },
-      { year: '2053', aliases: ['dippyflip', '@dippyflip'] },
-      { year: '2054', aliases: ['secret', '@secret'] },
-      { year: '2055', aliases: ['circl', '@circl'] },
-      { year: '2056', aliases: ['coachrich2x', '@coachrich2x', 'coachrich'] },
-      { year: '2057', aliases: ['coachrich2x', '@coachrich2x', 'coachrich'] },
-      { year: '2058', aliases: ['amok', '@amok'] },
-      { year: '2059', aliases: ['legend', '@legend'] },
-    ];
-
-    function getNatTitleYears(coachName) {
-      const rk = normalize(coachName);
-      return NAT_TITLE_ENTRIES
-        .filter(e => e.aliases.some(a => {
-          const an = normalize(a);
-          return an === rk || (an.length >= 4 && rk.includes(an)) || (rk.length >= 4 && an.includes(rk));
-        }))
-        .map(e => e.year);
     }
 
     const embeds = found.slice(0, 3).map(c => {

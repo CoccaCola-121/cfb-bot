@@ -15,9 +15,9 @@ const {
   getTeamLogoUrl,
 } = require('../utils/data');
 const {
-  fetchSheetCsv,
   matchesTeam,
 } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 
 const INFO_SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||

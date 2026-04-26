@@ -24,7 +24,8 @@ const {
   getLatestLeagueData, getTeamName, getTeamLogoUrl, getConferenceLogoUrl,
   getConferenceName, getConferenceAbbrevFromName,
 } = require('../utils/data');
-const { fetchSheetCsv, normalize, matchesTeam, safeNum } = require('../utils/sheets');
+const { normalize, matchesTeam, safeNum } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 
 // ── NZCFL Info sheet config ────────────────────────────────
 const INFO_SHEET_ID = process.env.NZCFL_INFO_SHEET_ID

@@ -10,7 +10,8 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { fetchSheetCsv, normalize } = require('../utils/sheets');
+const { normalize } = require('../utils/sheets');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const {
   getLatestLeagueData,
   getCurrentSeason,
@@ -19,6 +20,7 @@ const {
   safeNumber,
 } = require('../utils/data');
 const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
+const { NAT_TITLE_ASTERISK } = require('../utils/natTitles');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -26,8 +28,6 @@ const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
 // Coach resume sheet — only used for career W/L totals
 const RESUME_SHEET_ID  = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID       = '1607727992';
-
-const NAT_TITLE_ASTERISK = new Set(['legend', 'LEGEND']);
 
 // ── Parse coach CSV ──────────────────────────────────────────
 function parseCoachCsv(rows) {
