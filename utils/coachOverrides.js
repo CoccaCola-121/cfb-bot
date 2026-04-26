@@ -13,13 +13,13 @@
 //        "2058": {
 //          "wins": 5,
 //          "losses": 3,
-//          "ties": 0,
 //          "setBy": "<discord user id>",
 //          "setAt": "<ISO timestamp>"
 //        }
 //      }
 //    }
 //  Coach names are stored verbatim but matched via normalize().
+//  No ties — modern college football has overtime, every game has a winner.
 // ============================================================
 
 const fs = require('fs');
@@ -65,7 +65,8 @@ function findStoreKey(store, coachName) {
   return null;
 }
 
-// Return Map<yearString, { wins, losses, ties }> for a coach (empty Map if none).
+// Return Map<yearString, { wins, losses, setBy, setAt }> for a coach
+// (empty Map if none).
 function getOverridesForCoach(coachName) {
   const out = new Map();
   if (!coachName) return out;
@@ -78,7 +79,6 @@ function getOverridesForCoach(coachName) {
     out.set(String(year), {
       wins: Number(rec.wins) || 0,
       losses: Number(rec.losses) || 0,
-      ties: Number(rec.ties) || 0,
       setBy: rec.setBy || null,
       setAt: rec.setAt || null,
     });
@@ -86,12 +86,11 @@ function getOverridesForCoach(coachName) {
   return out;
 }
 
-function setCoachOverride(coachName, year, wins, losses, ties, userId) {
+function setCoachOverride(coachName, year, wins, losses, userId) {
   if (!coachName || !year) return false;
   const yearStr = String(year);
   const w = Math.max(0, Math.floor(Number(wins) || 0));
   const l = Math.max(0, Math.floor(Number(losses) || 0));
-  const t = Math.max(0, Math.floor(Number(ties) || 0));
 
   const store = loadStore();
   const existingKey = findStoreKey(store, coachName);
@@ -101,7 +100,6 @@ function setCoachOverride(coachName, year, wins, losses, ties, userId) {
   store[key][yearStr] = {
     wins: w,
     losses: l,
-    ties: t,
     setBy: userId ? String(userId) : null,
     setAt: new Date().toISOString(),
   };
@@ -132,17 +130,18 @@ function clearCoachOverride(coachName, year = null) {
 
 function parseRecordToWL(rec) {
   if (!rec) return null;
-  const m = String(rec).match(/^\s*(\d+)\s*-\s*(\d+)(?:\s*-\s*(\d+))?\s*$/);
+  // Tolerate a trailing tie segment in legacy data, but discard it —
+  // modern CFB has no ties.
+  const m = String(rec).match(/^\s*(\d+)\s*-\s*(\d+)(?:\s*-\s*\d+)?\s*$/);
   if (!m) return null;
   return {
     wins: parseInt(m[1], 10) || 0,
     losses: parseInt(m[2], 10) || 0,
-    ties: m[3] ? parseInt(m[3], 10) || 0 : 0,
   };
 }
 
-function formatRecord(w, l, t) {
-  return Number(t) > 0 ? `${w}-${l}-${t}` : `${w}-${l}`;
+function formatRecord(w, l) {
+  return `${w}-${l}`;
 }
 
 // Apply this coach's overrides on top of a parsed-resume object of shape:
@@ -164,8 +163,6 @@ function applyOverridesToResume(resume, coachName) {
 
   let totalW = Number(resume.wins) || 0;
   let totalL = Number(resume.losses) || 0;
-  // resume.history entries don't normally carry ties, but support them anyway.
-  let totalT = 0;
 
   const historyByYear = new Map();
   for (const h of resume.history || []) {
@@ -179,14 +176,12 @@ function applyOverridesToResume(resume, coachName) {
       if (parsed) {
         totalW -= parsed.wins;
         totalL -= parsed.losses;
-        totalT -= parsed.ties || 0;
       }
     }
     totalW += ov.wins;
     totalL += ov.losses;
-    totalT += ov.ties;
 
-    const newRecordStr = formatRecord(ov.wins, ov.losses, ov.ties);
+    const newRecordStr = formatRecord(ov.wins, ov.losses);
     historyByYear.set(year, {
       year,
       record: newRecordStr,
@@ -198,10 +193,9 @@ function applyOverridesToResume(resume, coachName) {
   // Defensive: don't allow negative totals from bad data.
   if (totalW < 0) totalW = 0;
   if (totalL < 0) totalL = 0;
-  if (totalT < 0) totalT = 0;
 
-  const games = totalW + totalL + totalT;
-  const totalRecord = formatRecord(totalW, totalL, totalT);
+  const games = totalW + totalL;
+  const totalRecord = formatRecord(totalW, totalL);
 
   const newHistory = [...historyByYear.values()].sort(
     (a, b) => Number(a.year) - Number(b.year)

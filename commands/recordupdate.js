@@ -31,14 +31,14 @@ const MIN_YEAR = 1900;
 const MAX_YEAR = 2200;
 const MAX_GAMES_IN_YEAR = 30; // generous upper bound; sanity check
 
-function fmtRecord(w, l, t) {
-  return Number(t) > 0 ? `${w}-${l}-${t}` : `${w}-${l}`;
+function fmtRecord(w, l) {
+  return `${w}-${l}`;
 }
 
 function buildOverridesEmbed(coachName, overrides) {
   const lines = [...overrides.entries()]
     .sort((a, b) => Number(a[0]) - Number(b[0]))
-    .map(([year, rec]) => `**${year}:** ${fmtRecord(rec.wins, rec.losses, rec.ties)}`);
+    .map(([year, rec]) => `**${year}:** ${fmtRecord(rec.wins, rec.losses)}`);
 
   return new EmbedBuilder()
     .setTitle(`📝 Record Overrides — ${coachName}`)
@@ -81,14 +81,6 @@ module.exports = {
         .setMinValue(0)
         .setMaxValue(MAX_GAMES_IN_YEAR)
     )
-    .addIntegerOption((opt) =>
-      opt
-        .setName('ties')
-        .setDescription('Ties for that year (optional, default 0)')
-        .setRequired(false)
-        .setMinValue(0)
-        .setMaxValue(MAX_GAMES_IN_YEAR)
-    )
     .addBooleanOption((opt) =>
       opt
         .setName('clear')
@@ -111,7 +103,6 @@ module.exports = {
     const year = interaction.options.getInteger('year');
     const wins = interaction.options.getInteger('wins');
     const losses = interaction.options.getInteger('losses');
-    const ties = interaction.options.getInteger('ties') || 0;
     const clear = interaction.options.getBoolean('clear') || false;
 
     // Mode: clear
@@ -148,23 +139,19 @@ module.exports = {
     // Mode: set
     if (wins === null || wins === undefined || losses === null || losses === undefined) {
       return interaction.editReply(
-        '❌ To set an override you must provide both `wins:` and `losses:` ' +
-          '(plus `ties:` if applicable).\n' +
+        '❌ To set an override you must provide both `wins:` and `losses:`.\n' +
           'Example: `/recordupdate year:2058 wins:5 losses:3`'
       );
     }
 
-    if (wins + losses + ties === 0) {
-      // Treat 0/0/0 as "I want this season to count as nothing", which is
-      // valid (e.g. you took over with 0 games left). Allow it.
-    }
+    // 0-0 is allowed (e.g. you joined with no games remaining or your
+    // half-season hasn't started yet).
 
     const ok = setCoachOverride(
       coachName,
       year,
       wins,
       losses,
-      ties,
       interaction.user.id
     );
     if (!ok) {
@@ -173,7 +160,7 @@ module.exports = {
       );
     }
 
-    const recStr = fmtRecord(wins, losses, ties);
+    const recStr = fmtRecord(wins, losses);
     const embed = new EmbedBuilder()
       .setTitle(`✅ Record override saved — ${coachName}`)
       .setColor(0x2ecc71)
