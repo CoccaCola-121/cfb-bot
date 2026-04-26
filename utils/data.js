@@ -25,6 +25,17 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const MAX_SAVED_FILES = 2;
 
+// Only files matching this pattern are treated as league exports. This keeps
+// other persisted state files (e.g. user_coaches.json) out of
+// getLatestLeagueData and pruneOldLeagueFiles. Without this, updating any
+// such state file would (a) make the bot try to read it as league data and
+// (b) push the real league file out of the "2 newest" prune window.
+const LEAGUE_FILE_RE = /^league_.*\.json(\.gz)?$/i;
+
+function isLeagueFile(name) {
+  return LEAGUE_FILE_RE.test(name);
+}
+
 // ── Custom logo overrides ────────────────────────────────────
 
 const TEAM_LOGO_OVERRIDES = new Map([
@@ -207,7 +218,7 @@ const NORMALIZED_CONFERENCE_LOGO_OVERRIDES = new Map(
 
 function getLatestLeagueData() {
   const files = fs.readdirSync(DATA_DIR)
-    .filter((f) => f.endsWith('.json.gz') || f.endsWith('.json'))
+    .filter(isLeagueFile)
     .map((f) => ({
       name: f,
       time: fs.statSync(path.join(DATA_DIR, f)).mtime.getTime(),
@@ -232,7 +243,7 @@ function getLatestLeagueData() {
 
 function pruneOldLeagueFiles() {
   const files = fs.readdirSync(DATA_DIR)
-    .filter((f) => f.endsWith('.json.gz') || f.endsWith('.json'))
+    .filter(isLeagueFile)
     .map((f) => ({
       name: f,
       time: fs.statSync(path.join(DATA_DIR, f)).mtime.getTime(),
