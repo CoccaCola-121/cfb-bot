@@ -1,207 +1,283 @@
-# 🏈 CFB League Discord Bot
+# 🏈 NZCFL Discord Bot
 
-A Discord bot for your 120-team college football league. Reads live stats from:
-- **football-gm JSON exports** (loaded after each weekly sim)
-- **Google Sheets** (coach records, custom stats)
-- **Reddit** (league subreddit posts)
+A Discord bot for the NZCFL — a 120-team college football league simulated in [Football-GM / ZenGM](https://zengm.com/football/). It serves stats, standings, schedules, recruiting, coaching history, and league lore directly in Discord.
+
+Data sources:
+
+- **Football-GM / ZenGM JSON exports** — uploaded after each weekly sim via `/loadweek`
+- **Google Sheets** (Coach Sheet, Resume Sheet, Rankings History, Recruiting Ranks, Value Sheet) — read live via the public gviz CSV endpoint, with a 5-minute in-process cache
+- **Reddit** — latest posts from the league subreddit
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 cfb-bot/
-├── index.js              ← Main bot file (start here)
-├── deploy-commands.js    ← Run once to register slash commands
-├── package.json          ← Dependencies
-├── .env                  ← Your secret keys (never share this)
-├── commands/
-│   ├── help.js
-│   ├── standings.js
-│   ├── teamstats.js
-│   ├── coachstats.js
-│   ├── playerleaders.js
-│   ├── scores.js
-│   ├── redditnews.js
-│   └── loadweek.js
+├── index.js                ← Entry point: loads commands, starts client
+├── deploy-commands.js      ← Registers slash commands with Discord
+├── package.json
+├── .env                    ← Secrets and IDs (never commit)
+├── commands/               ← 33 slash commands, one file each
 ├── utils/
-│   └── data.js           ← All data-reading helpers
-└── data/                 ← Auto-created; stores JSON exports
+│   ├── data.js             ← League JSON loader, team/season helpers
+│   ├── sheets.js           ← gviz CSV fetcher + normalize()
+│   ├── sheetCache.js       ← Cached fetcher with TTL + request coalescing
+│   ├── natTitles.js        ← National champion year list
+│   ├── coachOverrides.js   ← Per-coach W/L overrides for mid-season hires
+│   ├── userMap.js          ← Discord user → coach link (/iam)
+│   ├── permissions.js      ← Role-based admin gating
+│   ├── recruiting.js       ← Recruiting class helpers
+│   ├── ccg.js              ← Conference championship game logic
+│   └── weekLabels.js       ← Reg-season / postseason week labels
+└── data/                   ← Auto-created; stores uploaded league JSON
 ```
 
 ---
 
-## 🚀 Setup Guide (Step by Step)
+## Setup
 
-### Step 1 — Install Node.js
-Download from **https://nodejs.org** (choose the LTS version). Install it like any program.
+### 1. Install Node.js
 
-To verify it worked, open Terminal (Mac) or Command Prompt (Windows) and type:
+Download the LTS build from [nodejs.org](https://nodejs.org). Verify in a terminal:
+
 ```
 node --version
 ```
-You should see a version number like `v20.11.0`.
 
----
+You should see `v20.x` or newer.
 
-### Step 2 — Set up the Discord bot
+### 2. Create the Discord application
 
-1. Go to **https://discord.com/developers/applications**
-2. Click **"New Application"** → give it a name (e.g. "CFB League Bot")
-3. Click **"Bot"** in the left sidebar → click **"Add Bot"**
-4. Under **"Token"**, click **"Reset Token"** → copy the token (save it, you'll need it)
-5. Scroll down and enable these **Privileged Gateway Intents**:
-   - ✅ Server Members Intent
-   - ✅ Message Content Intent
-6. Click **"OAuth2"** → **"URL Generator"**
-   - Check `bot` and `applications.commands`
-   - Under Bot Permissions check: `Send Messages`, `Embed Links`, `Attach Files`, `Use Slash Commands`
-7. Copy the generated URL and paste it in your browser to invite the bot to your server
+1. Go to <https://discord.com/developers/applications> and create a new application.
+2. In the **Bot** tab, click **Reset Token** and save the token.
+3. Enable these privileged intents on the bot: **Server Members Intent** and **Message Content Intent**.
+4. In **OAuth2 → URL Generator**, check `bot` and `applications.commands`, then under bot permissions check `Send Messages`, `Embed Links`, `Attach Files`, and `Use Slash Commands`. Open the generated URL to invite the bot to your server.
 
-**Copy these values — you'll need them for `.env`:**
-- **Token** (from the Bot tab)
-- **Application ID** (from the General Information tab — labeled "Application ID")
-- **Guild/Server ID** (right-click your Discord server name → "Copy Server ID")
-  - Note: You need Developer Mode on. Enable it in Discord → Settings → Advanced → Developer Mode
+You'll need three values for `.env`:
 
----
+- **Token** — Bot tab
+- **Application ID** — General Information tab
+- **Server ID** — right-click your server (Discord → Settings → Advanced → Developer Mode must be on)
 
-### Step 3 — Set up Google Sheets (for coach stats)
+### 3. Wire up Google Sheets
 
-1. Create a new Google Sheet
-2. Name the first tab exactly: `CoachStats`
-3. Row 1 (headers): `Coach | Team | W | L | Conf_W | Conf_L | Bowl | Notes`
-4. Fill in your coaches' data starting from Row 2
-5. Click **Share** → change to **"Anyone with the link can view"**
-6. Get the **Sheet ID** from the URL:
-   ```
-   https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit
-   ```
-
-**Get a free API key:**
-1. Go to **https://console.cloud.google.com**
-2. Create a new project
-3. Search for "Google Sheets API" → Enable it
-4. Go to **Credentials** → **Create Credentials** → **API Key**
-5. Copy the API key
-
----
-
-### Step 4 — Configure your `.env` file
-
-In the `cfb-bot` folder, copy `.env.example` to a new file named `.env`:
+The bot reads sheets through the public gviz CSV endpoint, so the sheets must be set to **"Anyone with the link can view"** but no API key is required. For each sheet you use, grab its ID from the URL:
 
 ```
-DISCORD_TOKEN=paste_your_bot_token_here
-CLIENT_ID=paste_your_application_id_here
-GUILD_ID=paste_your_server_id_here
-GOOGLE_SHEETS_API_KEY=paste_your_google_api_key_here
-STATS_SHEET_ID=paste_your_sheet_id_here
-REDDIT_SUBREDDIT=your_subreddit_name_without_r/
-ADMIN_ROLE=Commissioner
+https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit#gid=<TAB_GID>
 ```
 
-> ⚠️ **Never share your `.env` file or commit it to GitHub.**
+The bot expects a few specific sheets, identified per-sheet in `.env`:
 
----
+- **Info Sheet** — multi-tab sheet with Coach, Resume, Prestige, Tradition, Winning, Pro Potential, Education, Campus tabs (one Sheet ID with multiple tab GIDs)
+- **Rankings History Sheet** — historical poll data
+- **Recruiting Ranks Sheet** — 247-style class rankings
+- **Value Sheet** — per-team value rankings
 
-### Step 5 — Install and run
+### 4. Reddit credentials (optional, for `/redditnews`)
 
-Open Terminal/Command Prompt in your `cfb-bot` folder and run:
+Create a script-type Reddit app at <https://www.reddit.com/prefs/apps> and copy the client ID + secret into `.env`. Without these, `/redditnews` is disabled.
+
+### 5. Configure `.env`
+
+```ini
+# Discord
+DISCORD_TOKEN=...
+CLIENT_ID=...
+GUILD_ID=...
+NZCFL_GUILD_ID=...                   # optional, for guild-scoped command deploy
+
+# Permission roles (Discord role IDs, not names)
+NZCFL_LEAGUE_OWNER_ROLE_ID=...
+NZCFL_COMMISSIONER_ROLE_ID=...
+NZCFL_MOD_ROLE_ID=...
+NZCFL_LEGACY_MOD_ROLE_ID=...         # optional fallback
+
+# Info Sheet (Coach, Resume, etc.)
+NZCFL_INFO_SHEET_ID=...
+NZCFL_INFO_GID_COACH=...
+NZCFL_INFO_GID_PRESTIGE=...
+NZCFL_INFO_GID_TRADITION=...
+NZCFL_INFO_GID_WINNING=...
+NZCFL_INFO_GID_PROPOT=...
+NZCFL_INFO_GID_EDU=...
+NZCFL_INFO_GID_CAMPUS=...
+NZCFL_INFO_YEAR=2026                 # current league year
+NZCFL_COACH_SHEET_TAB=Coaches
+NZCFL_RESUME_SHEET_TAB=Resume
+
+# Rankings History
+RANKINGS_HISTORY_SHEET_ID=...
+RANKINGS_HISTORY_STATS_GID=...
+RANKINGS_HISTORY_HISTORICAL_GID=...
+
+# Recruiting Ranks
+NZCFL_RECRUITING_RANKS_SHEET_ID=...
+NZCFL_RECRUITING_RANKS_SHEET_GID=...
+NZCFL_RECRUITING_RANKS_SHEET_NAME=Ranks
+
+# Value Sheet
+NZCFL_VALUE_SHEET_ID=...
+NZCFL_VALUE_SHEET_GID=...
+
+# Reddit (optional)
+REDDIT_CLIENT_ID=...
+REDDIT_CLIENT_SECRET=...
+REDDIT_USER_AGENT=nzcfl-bot/1.0
+REDDIT_SUBREDDIT=NZCFL
+
+# Storage / runtime
+DATA_DIR=./data                      # where uploaded league JSONs are saved
+RAILWAY_VOLUME_MOUNT_PATH=/data      # set automatically on Railway
+SHEET_CACHE_TTL_MS=300000            # default 5 min
+```
+
+> Never commit `.env` to git. Add it to `.gitignore` if it isn't already.
+
+### 6. Install and run
 
 ```bash
-# Install all dependencies (do this once)
 npm install
-
-# Register slash commands with Discord (do this once, or after adding new commands)
-npm run deploy
-
-# Start the bot
+npm run deploy        # register slash commands (run once, and after adding new commands)
 npm start
 ```
 
-You should see:
-```
-✅ Loaded command: /standings
-✅ Loaded command: /teamstats
-...
-🏈 Bot is online as CFB League Bot#1234
-```
-
-Leave this terminal window open — the bot runs as long as it's open.
+You should see a long list of `✅ Loaded command: /...` lines followed by `🏈 Bot is online as <name>`.
 
 ---
 
-### Step 6 — Daily workflow (after each weekly sim)
+## Weekly Workflow
 
-1. In football-gm, go to **Tools → Export → All data** → download the `.json` file
-2. In Discord, type `/loadweek` and attach the downloaded file
-3. That's it! All commands (`/standings`, `/scores`, `/playerleaders`, etc.) now reflect the new data
+After each league sim:
+
+1. In ZenGM, **Tools → Export → All data** and save the `.json` (or `.json.gz`).
+2. In Discord, run `/loadweek` and either attach the file directly **or** paste a URL to it.
+3. Optionally pass a `label` (e.g. `week8`) so the file is named cleanly in `data/`.
+4. All stat/standings commands now reflect the new sim.
+
+`/loadweek` is restricted to mod roles defined in `.env`. The sheet cache is automatically invalidated on a successful load.
 
 ---
 
-## 📋 Commands Reference
+## Command Reference
 
-| Command | What it does |
+### Personalize
+
+| Command | Description |
 |---|---|
-| `/help` | Shows all commands |
-| `/standings [conference]` | League standings (all or filtered by conference) |
-| `/teamstats [team]` | Stats for a specific team (use abbreviation or city) |
-| `/coachstats [name]` | Coach record from Google Sheets |
-| `/playerleaders [stat]` | Top players in passing, rushing, tackles, etc. |
+| `/iam coach:<name>` | Link your Discord ID to your coach so other commands default to your team |
+| `/iam` | Show your current link |
+| `/iam clear:true` | Remove your link |
+| `/recordupdate year:<yr> wins:<n> losses:<n>` | Hard-overwrite your W/L for a year (mid-season hires/departures) |
+| `/recordupdate` | Show all your record overrides |
+| `/recordupdate year:<yr> clear:true` | Remove that year's override |
+
+### Stats & Standings
+
+| Command | Description |
+|---|---|
+| `/standings [conference]` | Conference standings split by division |
+| `/teamstats [team]` | Full stats, offense/defense ranks, recruiting snapshot |
+| `/teamleaderboards <stat>` | Top 10 team stat leaderboards |
+| `/teamschedule [team]` | Full schedule with reg-season + postseason labels |
+| `/playerleaders <stat>` | Top 10 players in any stat category |
+| `/playerpage <player>` | Full player profile, ratings, stats |
 | `/scores [week]` | Game scores for a week (defaults to latest) |
-| `/redditnews [sort]` | Latest posts from the league subreddit |
-| `/loadweek` | Load a new JSON export (**commissioner only**) |
+| `/boxscore <team> [week]` | Single-game box score with stat leaders |
+| `/compareteams <team1> <team2>` | Side-by-side team comparison |
+| `/injuries <team>` | Current injuries and redshirts |
+| `/confoverview <conference>` | Conference-wide team stats summary |
+| `/heismanwatch` | Top 10 Heisman contenders by stat formula |
+| `/weeklypreview` | Top upcoming matchups ranked by hype |
+
+### Coach Tools
+
+| Command | Description |
+|---|---|
+| `/coachstats [name]` | Coach resume with career record, titles, and history |
+| `/coachleaderboard [sort]` | Top coaches by formula, wins, win %, conf titles, or rings |
+| `/openpositions [view] [conference]` | Ranks open coaching jobs by attractiveness |
+| `/dynastytracker [min] [coach]` | Active coaches with 5+ year tenures, top 10 |
+
+### History & Lore
+
+| Command | Description |
+|---|---|
+| `/championships [year] [coach]` | National champions, or all conference + division winners for a given year |
+| `/teamhistory <team>` | Coaching eras and championship years |
+| `/trashtalk <team>` | Generate a playful jab at a rival, fueled by real stats |
+
+### Recruiting
+
+| Command | Description |
+|---|---|
+| `/recruitingclass <team>` | Upcoming class with 247-style rankings |
+| `/toprecruits [position]` | Top recruits by position with commitments |
+| `/recruitoffers <player>` | 247-style offer board for one recruit |
+
+### Schedule & Rankings
+
+| Command | Description |
+|---|---|
+| `/ooc <team> [year]` | Out-of-conference schedule |
+| `/rankingstats <team>` | All-time ranking history summary |
+| `/valueboard [conference]` | Team value rankings |
+
+### News
+
+| Command | Description |
+|---|---|
+| `/redditnews [new\|hot\|top]` | Latest posts from the league subreddit |
+
+### Mod-Only
+
+| Command | Description |
+|---|---|
+| `/loadweek [jsonfile] [url] [label]` | Load a new Football-GM export from attachment or URL |
+| `/datafiles` | Show stored league files + sheet cache state |
 
 ---
 
-## 🔧 Customizing for Your League
+## Customizing
 
-### Add more stat columns to coach stats
-Just add columns to your Google Sheet. The bot automatically detects and shows any extra columns.
+**Adding a command.** Drop a new file in `commands/` exporting `{ data, execute }`, then run `npm run deploy`.
 
-### Change the Commissioner role name
-Edit `ADMIN_ROLE=` in your `.env` file to match your Discord role name exactly.
+**Adjusting sheet TTL.** Set `SHEET_CACHE_TTL_MS` in `.env` (default 300000 ms).
 
-### Add a custom command
-1. Create a new file in `commands/` (e.g. `commands/schedule.js`)
-2. Copy the structure from an existing command
-3. Re-run `npm run deploy` to register it
+**Mod permissions.** The bot checks role IDs from `NZCFL_LEAGUE_OWNER_ROLE_ID`, `NZCFL_COMMISSIONER_ROLE_ID`, `NZCFL_MOD_ROLE_ID`, and `NZCFL_LEGACY_MOD_ROLE_ID`. Any of those grants admin command access.
 
-### Map football-gm stat keys
-The football-gm JSON uses these stat keys in `player.stats`:
-- `pssYds` — passing yards
-- `rusYds` — rushing yards  
-- `recYds` — receiving yards
-- `defTck` — tackles
-- `defSk`  — sacks
-- `defInt` — interceptions
-- `pts`    — points/touchdowns
+**Football-GM stat keys** (handy when extending `/playerleaders`):
 
-Add new options to `commands/playerleaders.js` to expose more categories.
+```
+pssYds  passing yards         defTck  tackles
+rusYds  rushing yards         defSk   sacks
+recYds  receiving yards       defInt  interceptions
+pts     points                fgM     field goals made
+```
 
 ---
 
-## 🛠️ Keeping the Bot Online 24/7
+## 24/7 Hosting
 
-Right now the bot only runs while your computer is on. For 24/7 uptime:
-- **Free option**: Deploy to [Railway.app](https://railway.app) or [Render.com](https://render.com) (free tier)
-- **Easy option**: Run on a Raspberry Pi or an old laptop
+The bot only runs while the host process is alive. Production options:
 
-For Railway: push your code to GitHub, connect Railway to that repo, and set your `.env` values as environment variables in the Railway dashboard.
+- **Railway** (used in production) — push to GitHub, connect the repo, set every `.env` value as a Railway variable. The bot auto-detects `RAILWAY_VOLUME_MOUNT_PATH` for persistent league JSON storage.
+- **Render**, **Fly.io**, or any always-on VPS — same idea: clone the repo, set env vars, run `npm install && npm start`.
+- **Local box / Raspberry Pi** — works fine, just keep the process supervised (e.g. `pm2`, `systemd`).
 
 ---
 
-## ❓ Troubleshooting
+## Troubleshooting
 
-**Bot is online but commands don't appear in Discord**
-→ Make sure you ran `npm run deploy` after starting the bot. Commands can take up to 1 hour to appear globally, but guild-specific commands (which this uses) appear instantly.
+**Commands don't appear in Discord.** Run `npm run deploy`. Guild-scoped commands appear instantly; global commands can take up to an hour.
 
-**`/coachstats` says "Could not read Google Sheets"**
-→ Check that your Sheet is set to "Anyone with link can view" and that your API key and Sheet ID are correct in `.env`.
+**`/standings` says "No league data loaded".** Run `/loadweek` first. Files persist across restarts in `DATA_DIR`.
 
-**`/standings` says "No league data loaded"**
-→ Run `/loadweek` with your football-gm export first.
+**A `/coachstats`-style command says it can't read the sheet.** Confirm the sheet is set to "Anyone with the link can view", and that the matching `*_SHEET_ID` and `*_GID` (or tab name) are correct in `.env`.
 
-**The bot crashes with a token error**
-→ Double-check your `DISCORD_TOKEN` in `.env`. Make sure there are no extra spaces.
+**`/redditnews` returns nothing.** Check `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`, and `REDDIT_SUBREDDIT` are all set.
+
+**Token error on startup.** Re-check `DISCORD_TOKEN` for stray whitespace.
+
+**Permissions error on `/loadweek` or `/datafiles`.** Make sure your Discord user has one of the configured mod role IDs.

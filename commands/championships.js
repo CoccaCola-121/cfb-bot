@@ -513,10 +513,7 @@ module.exports = {
     }
 
     const display = champs.slice(0, MAX_NAT_TITLES_DISPLAY);
-    const footerText =
-      champs.length > MAX_NAT_TITLES_DISPLAY
-        ? `Showing ${MAX_NAT_TITLES_DISPLAY} most recent of ${champs.length} total champions`
-        : `Showing all ${champs.length} champion${champs.length === 1 ? '' : 's'}`;
+    const footerText = `Showing ${display.length} most recent champions`;
 
     const embed = new EmbedBuilder()
       .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
