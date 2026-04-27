@@ -12,15 +12,7 @@ const {
   safeNumber,
 } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
-const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
-
-const SHEET_ID =
-  process.env.NZCFL_INFO_SHEET_ID ||
-  process.env.NZCFL_COACH_SHEET_ID ||
-  process.env.GOOGLE_SHEET_ID ||
-  '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
-
-const RESUME_TAB = process.env.NZCFL_RESUME_SHEET_TAB || 'Resume';
+const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
 
 const MAX_NAT_TITLES_DISPLAY = 15;
 const MAX_FIELDS = 25;
@@ -125,200 +117,22 @@ function cleanDivisionName(divName) {
     .trim();
 }
 
-function findResumeHeader(rows) {
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i].map((c) => String(c || '').toLowerCase().trim());
-    if (r.includes('coach') && r.includes('total')) return i;
-    if (r.includes('coach') && r.some((c) => /\b20\d{2}\b/.test(c))) return i;
-  }
+function buildNatChamps(leagueData, currentSeason, coachFilter = null) {
+  const rowsByYear = new Map();
 
-  return -1;
-}
-
-function parseRecordAndMaybeTeam(value) {
-  const raw = String(value || '').trim();
-  const m = raw.match(/^(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
-
-  if (!m) return null;
-
-  return {
-    wins: Number(m[1]),
-    losses: Number(m[2]),
-    team: m[3] ? String(m[3]).trim() : null,
-  };
-}
-
-function classifyYearColumn(headerText) {
-  const h = String(headerText || '').toLowerCase();
-
-  if (/(team|school|program)/i.test(h)) return 'team';
-  if (/(rec|record|w-l|wl|w\/l|wins|losses)/i.test(h)) return 'record';
-
-  return 'unknown';
-}
-
-function parseResumeRows(rows) {
-  const hi = findResumeHeader(rows);
-  if (hi === -1) return [];
-
-  const header = rows[hi].map((c) => String(c || '').trim());
-  const lower = header.map((h) => h.toLowerCase());
-
-  const coachCol = lower.findIndex((h) => h === 'coach' || h.includes('coach'));
-  if (coachCol === -1) return [];
-
-  const yearCols = [];
-
-  for (let i = 0; i < header.length; i++) {
-    const match = String(header[i] || '').match(/\b(20\d{2})\b/);
-    if (!match) continue;
-
-    yearCols.push({
-      col: i,
-      year: match[1],
-      kind: classifyYearColumn(header[i]),
-      rawHeader: header[i],
-    });
-  }
-
-  if (!yearCols.length) return [];
-
-  const yearCounts = new Map();
-  for (const yc of yearCols) {
-    yearCounts.set(yc.year, (yearCounts.get(yc.year) || 0) + 1);
-  }
-
-  const hasDuplicateYearBlocks = [...yearCounts.values()].some((count) => count > 1);
-  const out = [];
-
-  for (let i = hi + 1; i < rows.length; i++) {
-    const r = rows[i];
-    const coach = String(r[coachCol] || '').trim();
-    if (!coach) continue;
-
-    const recordByYear = new Map();
-    const teamByYear = new Map();
-
-    if (hasDuplicateYearBlocks) {
-      const seenYear = new Set();
-
-      for (const yc of yearCols) {
-        const cell = String(r[yc.col] || '').trim();
-        if (!cell) continue;
-
-        if (!seenYear.has(yc.year)) {
-          const parsed = parseRecordAndMaybeTeam(cell);
-          if (parsed) {
-            recordByYear.set(yc.year, parsed);
-            if (parsed.team) teamByYear.set(yc.year, parsed.team);
-          } else if (yc.kind === 'team') {
-            teamByYear.set(yc.year, cell);
-          }
-          seenYear.add(yc.year);
-        } else {
-          teamByYear.set(yc.year, cell);
-        }
-      }
-    } else {
-      for (const yc of yearCols) {
-        const cell = String(r[yc.col] || '').trim();
-        if (!cell) continue;
-
-        const parsed = parseRecordAndMaybeTeam(cell);
-
-        if (yc.kind === 'team') {
-          teamByYear.set(yc.year, cell);
-        } else if (parsed) {
-          recordByYear.set(yc.year, parsed);
-          if (parsed.team) teamByYear.set(yc.year, parsed.team);
-        } else if (yc.kind === 'record') {
-          continue;
-        } else {
-          teamByYear.set(yc.year, cell);
-        }
-      }
-    }
-
-    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])];
-
-    for (const y of allYears) {
-      const rec = recordByYear.get(y);
-      const team = teamByYear.get(y) || rec?.team || null;
-
-      out.push({
-        year: Number(y),
-        coach,
-        team,
-        wins: rec ? rec.wins : 0,
-        losses: rec ? rec.losses : 0,
-      });
-    }
-  }
-
-  return out;
-}
-
-async function getResumeRows() {
-  try {
-    const rows = await fetchSheetCsv(SHEET_ID, RESUME_TAB);
-    return parseResumeRows(rows);
-  } catch (err) {
-    console.error('championships resume parse error:', err);
-    return [];
-  }
-}
-
-function teamAliasesForRow(row) {
-  const team = row.team;
-
-  return [
-    getTeamName(team),
-    team?.region,
-    team?.name,
-    team?.abbrev,
-    `${team?.region || ''} ${team?.name || ''}`.trim(),
-  ]
-    .filter(Boolean)
-    .map(normalize);
-}
-
-function coachForYearTeam(resumeRows, year, teamRow) {
-  const aliases = teamAliasesForRow(teamRow);
-
-  const exact = resumeRows.find((r) => {
-    if (Number(r.year) !== Number(year) || !r.team) return false;
-    const rt = normalize(r.team);
-    return aliases.some((a) => rt === a);
-  });
-
-  if (exact) return exact.coach;
-
-  const fuzzy = resumeRows.find((r) => {
-    if (Number(r.year) !== Number(year) || !r.team) return false;
-
-    const rt = normalize(r.team);
-    return aliases.some((a) => {
-      if (!a || !rt) return false;
-      if (a.length <= 3 || rt.length <= 3) return rt === a;
-      return rt.includes(a) || a.includes(rt);
-    });
-  });
-
-  return fuzzy?.coach || 'Unknown Coach';
-}
-
-function buildNatChamps(leagueData, resumeRows, currentSeason, coachFilter = null) {
-  const rows = teamSeasonRows(leagueData).filter((r) => r.year < currentSeason);
-  const byYear = new Map();
-
-  for (const r of rows) {
-    if (!byYear.has(r.year)) byYear.set(r.year, []);
-    byYear.get(r.year).push(r);
+  for (const r of teamSeasonRows(leagueData)) {
+    if (r.year >= currentSeason) continue;
+    if (!rowsByYear.has(r.year)) rowsByYear.set(r.year, []);
+    rowsByYear.get(r.year).push(r);
   }
 
   const champs = [];
 
-  for (const [year, teams] of byYear.entries()) {
+  for (const entry of NAT_TITLE_ENTRIES) {
+    const year = Number(entry.year);
+    const teams = rowsByYear.get(year);
+    if (!teams || !teams.length) continue;
+
     const maxRounds = Math.max(...teams.map((t) => t.playoffRoundsWon));
     if (maxRounds <= 0) continue;
 
@@ -326,13 +140,15 @@ function buildNatChamps(leagueData, resumeRows, currentSeason, coachFilter = nul
       .filter((t) => t.playoffRoundsWon === maxRounds)
       .sort((a, b) => compareWinner(a, b, 'conference'))[0];
 
-    const coach = coachForYearTeam(resumeRows, year, champ);
+    const displayCoach =
+      entry.aliases.find((a) => !a.startsWith('@')) || entry.aliases[0] || 'Unknown Coach';
 
     champs.push({
       year,
       teamName: champ.teamName,
-      coach,
-      line: `**${year}** — ${champ.teamName} (${coach})`,
+      coach: displayCoach,
+      aliases: entry.aliases,
+      line: `**${year}** — ${champ.teamName} (${displayCoach})`,
     });
   }
 
@@ -340,10 +156,13 @@ function buildNatChamps(leagueData, resumeRows, currentSeason, coachFilter = nul
 
   if (coachFilter) {
     const q = normalize(coachFilter);
-    out = out.filter((c) => {
-      const cn = normalize(c.coach);
-      return cn === q || cn.includes(q) || q.includes(cn);
-    });
+
+    out = out.filter((c) =>
+      c.aliases.some((a) => {
+        const an = normalize(a);
+        return an === q || (an.length >= 4 && q.includes(an)) || (q.length >= 4 && an.includes(q));
+      })
+    );
   }
 
   return out;
@@ -429,16 +248,17 @@ async function autocomplete(interaction) {
   const focused = interaction.options.getFocused(true);
   if (focused.name !== 'coach') return interaction.respond([]);
 
-  const resumeRows = await getResumeRows();
   const q = normalize(focused.value);
 
-  const coaches = [...new Set(resumeRows.map((r) => r.coach).filter(Boolean))]
+  const names = [
+    ...new Set(NAT_TITLE_ENTRIES.flatMap((e) => e.aliases).filter((a) => !a.startsWith('@'))),
+  ]
     .filter((c) => !q || normalize(c).includes(q))
     .sort((a, b) => a.localeCompare(b))
     .slice(0, 25)
     .map((c) => ({ name: c, value: c }));
 
-  return interaction.respond(coaches);
+  return interaction.respond(names);
 }
 
 module.exports = {
@@ -469,7 +289,6 @@ module.exports = {
 
     const year = interaction.options.getInteger('year');
     const coach = interaction.options.getString('coach');
-    const resumeRows = await getResumeRows();
 
     const currentSeason = Number(getCurrentSeason(leagueData));
     const targetYear = Number.isFinite(year) ? year : null;
@@ -504,7 +323,7 @@ module.exports = {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    const champs = buildNatChamps(leagueData, resumeRows, currentSeason, coach);
+    const champs = buildNatChamps(leagueData, currentSeason, coach);
 
     if (!champs.length) {
       return interaction.editReply(
