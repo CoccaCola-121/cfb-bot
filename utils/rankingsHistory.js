@@ -17,6 +17,13 @@ const HISTORICAL_GID = process.env.RANKINGS_HISTORY_HISTORICAL_GID || '';
 const RANK_ROW_START = 1;     // skip the single header row
 const RANK_ROW_END_HARD = 28; // top 25 lives in rows 1..27
 
+function isRankingColumn(column) {
+  if (!column) return false;
+  const header = String(column.rawHeader || '').trim().toLowerCase();
+  if (!header || header === 'timeline') return false;
+  return column.weekKind != null || column.yearExplicit != null || column.year != null;
+}
+
 function parseDisplayedRank(row, fallback) {
   if (!Array.isArray(row)) return fallback;
 
@@ -181,6 +188,7 @@ function eligibleColumnsForTeam(rows, team, columnIndex) {
   const eligible = [];
 
   for (const c of columnIndex) {
+    if (!isRankingColumn(c)) continue;
     for (let r = RANK_ROW_START; r < dataEnd; r++) {
       const cell = rows[r]?.[c.col];
       if (cell && teamMatchesCell(cell, team)) {
@@ -207,6 +215,7 @@ function findLatestColumn(rows, columnIndex) {
   const dataEnd = Math.min(rows.length, RANK_ROW_END_HARD);
 
   const populated = columnIndex.filter((c) => {
+    if (!isRankingColumn(c)) return false;
     for (let r = RANK_ROW_START; r < dataEnd; r++) {
       if (String(rows[r]?.[c.col] || '').trim()) return true;
     }

@@ -33,7 +33,13 @@ module.exports = {
       return interaction.editReply('❌ No game data found. Ask a commissioner to run `/loadweek`.');
     }
 
-    const allGames = getGamesForCurrentSeason(leagueData);
+    const allGames = getGamesForCurrentSeason(leagueData).filter((game) => {
+      const teams = game.teams || [];
+      return (
+        teams.length === 2 &&
+        teams.every((team) => typeof team?.pts === 'number' && !Number.isNaN(team.pts))
+      );
+    });
     if (allGames.length === 0) {
       return interaction.editReply('No games found in the loaded data.');
     }
