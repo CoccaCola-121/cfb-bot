@@ -34,6 +34,7 @@ function coachMatches(inputCoach, actualCoach) {
 function teamSubjectFn(team) {
   return (game) => {
     if (!sameName(game.teamA, team) && !sameName(game.teamB, team)) return null;
+    if (!game.winner) return null;
     return sameName(game.winner, team) ? 'win' : 'loss';
   };
 }
@@ -59,6 +60,7 @@ async function coachSideForGame(game, coach) {
 async function coachResultForGame(game, coach) {
   const side = await coachSideForGame(game, coach);
   if (!side) return null;
+  if (!game.winner) return null;
   return sameName(game.winner, side) ? 'win' : 'loss';
 }
 
@@ -73,7 +75,9 @@ async function hydrateCoachPerspective(games, coach) {
       ...game,
       __subjectTeam: side,
       __subjectCoach: coach,
-      __subjectResult: sameName(game.winner, side) ? 'win' : 'loss',
+      __subjectResult: game.winner
+        ? (sameName(game.winner, side) ? 'win' : 'loss')
+        : null,
     });
   }
 

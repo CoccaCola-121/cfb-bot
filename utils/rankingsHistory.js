@@ -17,6 +17,20 @@ const HISTORICAL_GID = process.env.RANKINGS_HISTORY_HISTORICAL_GID || '';
 const RANK_ROW_START = 1;     // skip the single header row
 const RANK_ROW_END_HARD = 28; // top 25 lives in rows 1..27
 
+function parseDisplayedRank(row, fallback) {
+  if (!Array.isArray(row)) return fallback;
+
+  for (const cell of row) {
+    const value = String(cell || '').trim();
+    if (!/^\d{1,2}$/.test(value)) continue;
+
+    const rank = Number(value);
+    if (rank >= 1 && rank <= 25) return rank;
+  }
+
+  return fallback;
+}
+
 // ----- normalize -----
 
 function normalize(value) {
@@ -204,8 +218,9 @@ function findLatestColumn(rows, columnIndex) {
   return populated[populated.length - 1];
 }
 
-// Pull ranked entries from a column. Rank is taken from row[1]'s column 1
-// (the "Timeline" column) when available, else r-index.
+// Pull ranked entries from a column. Rank is taken from the first 1..25 value
+// found on that row (the sheet's displayed rank cell), else falls back to the
+// row index within the Top 25 block.
 function readRankingColumn(rows, column, { limit = 25 } = {}) {
   if (!rows || !column) return [];
   const dataEnd = Math.min(rows.length, RANK_ROW_END_HARD);
@@ -215,8 +230,7 @@ function readRankingColumn(rows, column, { limit = 25 } = {}) {
     const cell = String(rows[r]?.[column.col] || '').trim();
     if (!cell) continue;
 
-    const timelineCell = String(rows[r]?.[1] || '').trim();
-    const rank = Number(timelineCell) || r;
+    const rank = parseDisplayedRank(rows[r], out.length + 1);
     out.push({ rank, name: cell });
     if (out.length >= limit) break;
   }

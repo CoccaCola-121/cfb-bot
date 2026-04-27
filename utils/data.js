@@ -5,6 +5,7 @@
   const fs = require('fs');
   const path = require('path');
   const zlib = require('zlib');
+  const { REG_SEASON_WEEKS } = require('./weekLabels');
 
   const fetchFn = globalThis.fetch
     ? globalThis.fetch.bind(globalThis)
@@ -388,6 +389,27 @@
     return map;
   }
 
+  function getTeamByTid(leagueData, tid) {
+    if (!leagueData?.teams || tid === null || tid === undefined) return null;
+
+    const numericTid = Number(tid);
+    const teamMap = getTeamMap(leagueData);
+
+    if (Number.isFinite(numericTid) && teamMap.has(numericTid)) {
+      return teamMap.get(numericTid);
+    }
+
+    if (teamMap.has(tid)) {
+      return teamMap.get(tid);
+    }
+
+    return leagueData.teams.find((team) => Number(team?.tid) === numericTid) || null;
+  }
+
+  function getTeamNameByTid(leagueData, tid) {
+    return getTeamName(getTeamByTid(leagueData, tid));
+  }
+
   function getTeamName(team) {
     if (!team) return 'Unknown Team';
     return `${team.region || ''} ${team.name || ''}`.trim();
@@ -584,9 +606,77 @@
     return games.filter((g) => g.season === currentSeason);
   }
 
-  function inferWeekFromGameDay(day) {
-    if (typeof day !== 'number' || Number.isNaN(day)) return null;
-    return day + 1;
+  function buildGameDayWeekMap(games) {
+    const uniqueDays = [...new Set(
+      (games || [])
+        .map((game) => Number(game?.day))
+        .filter((day) => Number.isFinite(day))
+    )].sort((a, b) => a - b);
+
+    return new Map(uniqueDays.map((day, index) => [day, index + 1]));
+  }
+
+  function getCurrentSeasonWeekMap(leagueData) {
+    return buildGameDayWeekMap(getGamesForCurrentSeason(leagueData));
+  }
+
+  function inferWeekFromGameDay(day, dayWeekMap = null) {
+    const numericDay = Number(day);
+    if (!Number.isFinite(numericDay)) return null;
+
+    if (dayWeekMap instanceof Map && dayWeekMap.has(numericDay)) {
+      return dayWeekMap.get(numericDay);
+    }
+
+    return numericDay + 1;
+  }
+
+  function getGameWeek(game, dayWeekMap = null) {
+    return inferWeekFromGameDay(game?.day, dayWeekMap);
+  }
+
+  function getPlayoffRecordForTeam(leagueData, teamTid, season) {
+    const numericSeason = Number(season);
+    const seasonGames = (leagueData?.games || []).filter((game) => {
+      if (!Array.isArray(game?.teams) || game.teams.length !== 2) return false;
+      if (!game.teams.some((team) => Number(team?.tid) === Number(teamTid))) return false;
+      if (!game.teams.every((team) => typeof team?.pts === 'number')) return false;
+      if (game.season !== undefined && Number(game.season) !== numericSeason) return false;
+      return true;
+    });
+
+    const weekMap = buildGameDayWeekMap(seasonGames);
+    let wins = 0;
+    let losses = 0;
+
+    for (const game of seasonGames) {
+      const normalizedWeek = getGameWeek(game, weekMap);
+      const isPostseason = Boolean(game.playoffs) || normalizedWeek > REG_SEASON_WEEKS;
+      if (!isPostseason) continue;
+
+      const teamSide = game.teams.find((team) => Number(team?.tid) === Number(teamTid));
+      const oppSide = game.teams.find((team) => Number(team?.tid) !== Number(teamTid));
+      if (!teamSide || !oppSide) continue;
+
+      if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins += 1;
+      else if (safeNumber(teamSide.pts) < safeNumber(oppSide.pts)) losses += 1;
+    }
+
+    return { wins, losses };
+  }
+
+  function getLiveTeamRecord(leagueData, team, season = getCurrentSeason(leagueData)) {
+    if (!leagueData || !team) return null;
+
+    const teamSeason = getLatestTeamSeason(team, season);
+    if (!teamSeason) return null;
+
+    const playoffRecord = getPlayoffRecordForTeam(leagueData, team.tid, season);
+    const wins = safeNumber(teamSeason.won) + playoffRecord.wins;
+    const losses = safeNumber(teamSeason.lost) + playoffRecord.losses;
+    const ties = safeNumber(teamSeason.tied);
+
+    return { wins, losses, ties };
   }
 
   function getGameTeams(game) {
@@ -890,7 +980,7 @@
 
     if (!team) return null;
 
-    const teamMap = getTeamMap(leagueData);
+    const weekMap = getCurrentSeasonWeekMap(leagueData);
 
     const games = getGamesForCurrentSeason(leagueData)
       .filter((game) => getGameTeams(game).some((t) => t.tid === team.tid))
@@ -902,7 +992,7 @@
         const opp = teams.find((t) => t.tid !== team.tid);
         if (!self || !opp) return null;
 
-        const week = inferWeekFromGameDay(game.day);
+        const week = getGameWeek(game, weekMap);
         const teamScore = safeNumber(self.pts);
         const oppScore = safeNumber(opp.pts);
 
@@ -914,8 +1004,8 @@
         return {
           week,
           opponentTid: opp.tid,
-          opponent: getTeamName(teamMap.get(opp.tid)),
-          opponentAbbrev: teamMap.get(opp.tid)?.abbrev || '?',
+          opponent: getTeamName(getTeamByTid(leagueData, opp.tid)),
+          opponentAbbrev: getTeamByTid(leagueData, opp.tid)?.abbrev || '?',
           teamScore,
           oppScore,
           result,
@@ -1282,6 +1372,8 @@
     getCurrentSeason,
     getCurrentPhase,
     getTeamMap,
+    getTeamByTid,
+    getTeamNameByTid,
     getTeamName,
     cleanDivisionName,
     getConferenceName,
@@ -1293,11 +1385,16 @@
     getLatestTeamStats,
     getLatestPlayerStats,
     getGamesForCurrentSeason,
+    buildGameDayWeekMap,
+    getCurrentSeasonWeekMap,
     inferWeekFromGameDay,
+    getGameWeek,
     getGameTeams,
     getGameWinnerTid,
     getGamesBetweenTeams,
     getHeadToHeadRecord,
+    getPlayoffRecordForTeam,
+    getLiveTeamRecord,
     getStandings,
     getConferenceDivisionStandings,
     getLatestPosition,

@@ -15,9 +15,8 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const {
   getLatestLeagueData,
   getCurrentSeason,
-  getLatestTeamSeason,
+  getLiveTeamRecord,
   getTeamName,
-  safeNumber,
 } = require('../utils/data');
 const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
 
@@ -92,15 +91,22 @@ function patchRecordWithCurrentSeason(leagueData, coach, record) {
   const leagueTeam = findLeagueTeamByName(leagueData, coach.team);
   if (!leagueTeam) return record;
 
-  const seas = getLatestTeamSeason(leagueTeam, currentSeason);
-  if (!seas) return record;
+  const currentYearRecord = getLiveTeamRecord(leagueData, leagueTeam, currentSeason);
+  if (!currentYearRecord) return record;
 
-  const liveW = safeNumber(seas.won);
-  const liveL = safeNumber(seas.lost);
+  const liveW = currentYearRecord.wins;
+  const liveL = currentYearRecord.losses;
   if (liveW + liveL === 0) return record;
 
-  const totalW = record.wins + liveW;
-  const totalL = record.losses + liveL;
+  const existingYear = Array.isArray(record.history)
+    ? record.history.find((entry) => Number(entry.year) === Number(currentSeason) && entry.record)
+    : null;
+  const existingMatch = existingYear?.record?.match(/^(\d+)-(\d+)$/);
+  const existingW = existingMatch ? Number(existingMatch[1]) : 0;
+  const existingL = existingMatch ? Number(existingMatch[2]) : 0;
+
+  const totalW = record.wins - existingW + liveW;
+  const totalL = record.losses - existingL + liveL;
   const games = totalW + totalL;
 
   return {
@@ -109,6 +115,10 @@ function patchRecordWithCurrentSeason(leagueData, coach, record) {
     losses: totalL,
     pct: games > 0 ? totalW / games : 0,
     record: `${totalW}-${totalL}`,
+    history: [
+      ...(Array.isArray(record.history) ? record.history.filter((entry) => Number(entry.year) !== Number(currentSeason)) : []),
+      { year: String(currentSeason), record: `${liveW}-${liveL}` },
+    ].sort((a, b) => Number(a.year) - Number(b.year)),
   };
 }
 

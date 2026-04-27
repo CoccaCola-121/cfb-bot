@@ -72,12 +72,13 @@ function coachAliasesFor(name) {
 
 async function getCoachForTeamYear(team, year) {
   const rows = await loadResume();
+  const targetTeam = normalize(team);
 
   const match = rows.find(
     (r) =>
       r.year === year &&
       r.team &&
-      r.team.toLowerCase() === team.toLowerCase()
+      normalize(r.team) === targetTeam
   );
 
   return match ? match.coach : null;

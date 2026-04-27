@@ -11,6 +11,8 @@ const {
   getTeamMap,
   getLatestPlayerStats,
   getGamesForCurrentSeason,
+  getCurrentSeasonWeekMap,
+  getGameWeek,
   safeNumber,
 } = require('../utils/data');
 
@@ -104,11 +106,11 @@ function getWeeksPlayed(leagueData) {
   const games = getGamesForCurrentSeason(leagueData);
   if (!games.length) return 1;
 
+  const weekMap = getCurrentSeasonWeekMap(leagueData);
   let maxWeek = 1;
   for (const game of games) {
-    if (typeof game.day === 'number' && Number.isFinite(game.day)) {
-      maxWeek = Math.max(maxWeek, game.day + 1);
-    }
+    const week = getGameWeek(game, weekMap);
+    if (week !== null) maxWeek = Math.max(maxWeek, week);
   }
 
   return maxWeek;

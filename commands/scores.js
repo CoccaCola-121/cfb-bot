@@ -6,9 +6,9 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData,
   getGamesForCurrentSeason,
-  getTeamMap,
-  getTeamName,
-  inferWeekFromGameDay,
+  getCurrentSeasonWeekMap,
+  getGameWeek,
+  getTeamNameByTid,
 } = require('../utils/data');
 const { getWeekLabel } = require('../utils/weekLabels');
 
@@ -36,11 +36,11 @@ module.exports = {
       return interaction.editReply('No games found in the loaded data.');
     }
 
-    const teamMap = getTeamMap(leagueData);
+    const weekMap = getCurrentSeasonWeekMap(leagueData);
 
     const weekBuckets = new Map();
     for (const game of allGames) {
-      const week = inferWeekFromGameDay(game.day);
+      const week = getGameWeek(game, weekMap);
       if (week === null) continue;
       if (!weekBuckets.has(week)) weekBuckets.set(week, []);
       weekBuckets.get(week).push(game);
@@ -69,8 +69,8 @@ module.exports = {
         return 'Unknown matchup';
       }
 
-      const homeTeam = getTeamName(teamMap.get(team0.tid));
-      const awayTeam = getTeamName(teamMap.get(team1.tid));
+      const homeTeam = getTeamNameByTid(leagueData, team0.tid);
+      const awayTeam = getTeamNameByTid(leagueData, team1.tid);
       const homePts = team0.pts ?? '?';
       const awayPts = team1.pts ?? '?';
 

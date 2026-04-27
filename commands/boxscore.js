@@ -7,7 +7,9 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData,
   getGamesForCurrentSeason,
-  getTeamMap,
+  getCurrentSeasonWeekMap,
+  getGameWeek,
+  getTeamByTid,
   getTeamName,
   safeNumber,
   getCurrentSeason,
@@ -19,11 +21,6 @@ function findTeamByAbbrev(leagueData, abbrev) {
   return (leagueData.teams || []).find(
     (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === abbrev
   );
-}
-
-function weekFromDay(day) {
-  if (typeof day !== 'number' || Number.isNaN(day)) return null;
-  return day;
 }
 
 function getLatestPosition(player) {
@@ -292,9 +289,9 @@ module.exports = {
       requestedAbbrev = requestedTeam.abbrev;
     }
 
-    const teamMap = getTeamMap(leagueData);
     const season = getCurrentSeason(leagueData);
     const allGames = getGamesForCurrentSeason(leagueData);
+    const weekMap = getCurrentSeasonWeekMap(leagueData);
     const rosterByPid = buildRosterByPid(leagueData);
 
     const completedGames = allGames.filter((g) => {
@@ -316,7 +313,7 @@ module.exports = {
     const gamesByWeek = new Map();
 
     for (const game of completedGames) {
-      const week = weekFromDay(game.day);
+      const week = getGameWeek(game, weekMap);
       if (week === null) continue;
 
       if (!gamesByWeek.has(week)) {
@@ -346,8 +343,8 @@ module.exports = {
       return interaction.editReply('❌ Malformed game data.');
     }
 
-    const homeTeam = teamMap.get(homeSide.tid);
-    const awayTeam = teamMap.get(awaySide.tid);
+    const homeTeam = getTeamByTid(leagueData, homeSide.tid);
+    const awayTeam = getTeamByTid(leagueData, awaySide.tid);
 
     const homeName = getTeamName(homeTeam) || 'Home';
     const awayName = getTeamName(awayTeam) || 'Away';

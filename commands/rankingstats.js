@@ -15,6 +15,11 @@ const {
 } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
+const {
+  loadRankingsHistory,
+  findLastRankedColumn,
+  formatColumnLabel,
+} = require('../utils/rankingsHistory');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
@@ -516,9 +521,9 @@ module.exports = {
       abbrev = String(team.abbrev || '').toUpperCase().trim();
     }
 
-    const [{ rows }, historicalRows] = await Promise.all([
+    const [{ rows }, rankingsHistory] = await Promise.all([
       fetchStatsRows(),
-      fetchHistoricalRows().catch(() => null),
+      loadRankingsHistory().catch(() => null),
     ]);
 
     if (!rows) {
@@ -534,37 +539,11 @@ module.exports = {
       );
     }
 
-    const lastRanked = historicalRows
-      ? findLastRankedInfo(historicalRows, team)
+    const lastRanked = rankingsHistory?.rows
+      ? findLastRankedColumn(rankingsHistory.rows, team, rankingsHistory.columnIndex)
       : null;
 
-    let lastRankedDisplay = '—';
-    if (lastRanked) {
-      const year = lastRanked.year || '';
-      const label = lastRanked.label || '';
-      let text = '';
-      if (year && label) {
-        if (label.includes(year)) {
-          // Label already has the full 4-digit year, use as-is.
-          text = label;
-        } else if (
-          /^\d{2}\b/.test(label) &&
-          year.length === 4 &&
-          year.endsWith(label.slice(0, 2))
-        ) {
-          // Label starts with 2-digit year matching our 4-digit year:
-          // "60 Playoff Rankings" -> "2060 Playoff Rankings"
-          text = `20${label}`;
-        } else {
-          text = `${year} ${label}`;
-        }
-      } else if (label) {
-        text = label;
-      } else if (year) {
-        text = year;
-      }
-      if (text) lastRankedDisplay = `**${text}**`;
-    }
+    const lastRankedDisplay = lastRanked ? `**${formatColumnLabel(lastRanked)}**` : '—';
 
     const embed = new EmbedBuilder()
       .setTitle(`Historical Ranking Stats — ${getTeamName(team)}`)
