@@ -132,37 +132,37 @@ function filterTeamVsTeam(allGames, teamA, teamB) {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('h2h')
-    .setDescription('Show head-to-head records.')
-    .addStringOption((opt) =>
-      opt
-        .setName('mode')
-        .setDescription('H2H mode')
-        .setRequired(false)
-        .addChoices(
-          { name: 'team', value: 'team' },
-          { name: 'coach', value: 'coach' },
-          { name: 'team-vs-team', value: 'team-vs-team' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('opponent')
-        .setDescription('Opponent team or coach')
-        .setRequired(true)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('me_coach')
-        .setDescription('Override your linked coach name')
-        .setRequired(false)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('me_team')
-        .setDescription('Override your linked team for team-vs-team mode')
-        .setRequired(false)
-    ),
+  .setName('h2h')
+  .setDescription('Show head-to-head records.')
+  .addStringOption((opt) =>
+    opt
+      .setName('opponent')
+      .setDescription('Opponent team or coach')
+      .setRequired(true)
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName('mode')
+      .setDescription('H2H mode')
+      .setRequired(false)
+      .addChoices(
+        { name: 'team', value: 'team' },
+        { name: 'coach', value: 'coach' },
+        { name: 'team-vs-team', value: 'team-vs-team' }
+      )
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName('me_coach')
+      .setDescription('Override your linked coach name')
+      .setRequired(false)
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName('me_team')
+      .setDescription('Override your linked team for team-vs-team mode')
+      .setRequired(false)
+  ),
 
   async execute(interaction) {
     await interaction.deferReply();
