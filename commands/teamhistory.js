@@ -5,17 +5,47 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData,
+  getCurrentSeason,
+  getLatestTeamSeason,
   findTeamByName,
   getTeamLogoUrl,
   getTeamName,
+  safeNumber,
 } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
 const { getUserTeam } = require('../utils/userMap');
+const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
+
+function getPlayoffRecordForTeam(leagueData, teamTid, season) {
+  const games = (leagueData.games || []).filter((g) => {
+    if (!Array.isArray(g.teams) || g.teams.length !== 2) return false;
+    if (!g.teams.some((t) => t.tid === teamTid)) return false;
+    if (!g.teams.every((t) => typeof t.pts === 'number')) return false;
+
+    if (g.season !== undefined && Number(g.season) !== Number(season)) return false;
+
+    return Boolean(g.playoffs) || Number(g.day) > REG_SEASON_WEEKS;
+  });
+
+  let wins = 0;
+  let losses = 0;
+
+  for (const g of games) {
+    const teamSide = g.teams.find((t) => t.tid === teamTid);
+    const oppSide = g.teams.find((t) => t.tid !== teamTid);
+    if (!teamSide || !oppSide) continue;
+
+    if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins++;
+    else losses++;
+  }
+
+  return { wins, losses };
+}
 
 function parseResumeRows(rows) {
   let hi = -1;
@@ -146,6 +176,31 @@ function teamChampionshipYears(teamAliasesNorm, allRows) {
   return out;
 }
 
+function mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason) {
+  const season = getLatestTeamSeason(team, currentSeason);
+  if (!season) return teamRows;
+
+  const playoff = getPlayoffRecordForTeam(leagueData, team.tid, currentSeason);
+
+  const currentWins = safeNumber(season.won) + playoff.wins;
+  const currentLosses = safeNumber(season.lost) + playoff.losses;
+
+  const idx = teamRows.findIndex((r) => Number(r.year) === Number(currentSeason));
+
+  if (idx >= 0) {
+    const next = [...teamRows];
+    next[idx] = {
+      ...next[idx],
+      wins: currentWins,
+      losses: currentLosses,
+      team: next[idx].team || getTeamName(team),
+    };
+    return next;
+  }
+
+  return teamRows;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('teamhistory')
@@ -165,6 +220,8 @@ module.exports = {
     if (!leagueData) {
       return interaction.editReply('❌ No league data loaded. Ask a commissioner to run `/loadweek`.');
     }
+
+    const currentSeason = Number(getCurrentSeason(leagueData));
 
     let teamArg = interaction.options.getString('team');
     let team = null;
@@ -200,7 +257,9 @@ module.exports = {
     }
 
     const allRows = parseResumeRows(resumeRows);
-    const teamRows = allRows.filter((r) => r.team && teamAliasesNorm.has(normalize(r.team)));
+    let teamRows = allRows.filter((r) => r.team && teamAliasesNorm.has(normalize(r.team)));
+
+    teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason);
 
     if (!teamRows.length) {
       return interaction.editReply(`*No coaching history found for ${teamLabel} on the resume sheet yet.*`);
@@ -252,7 +311,7 @@ module.exports = {
       .setTitle(`📜 ${teamLabel} (${team.abbrev}) — Program History`)
       .setColor(0x2c3e50)
       .addFields(fields)
-      .setFooter({ text: 'Resume sheet history' })
+      .setFooter({ text: 'Resume sheet history + current season JSON record' })
       .setTimestamp();
 
     const logo = getTeamLogoUrl(team);

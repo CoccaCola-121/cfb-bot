@@ -13,6 +13,7 @@ const {
   getCurrentSeason,
 } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
+const { getWeekLabel, isPostseason } = require('../utils/weekLabels');
 
 function findTeamByAbbrev(leagueData, abbrev) {
   return (leagueData.teams || []).find(
@@ -256,7 +257,7 @@ module.exports = {
     .addIntegerOption((opt) =>
       opt
         .setName('week')
-        .setDescription('Week number (default: latest played week)')
+        .setDescription('Week number, default latest played week')
         .setRequired(false)
     ),
 
@@ -275,17 +276,19 @@ module.exports = {
     if (teamArg) {
       requestedAbbrev = teamArg.toUpperCase().trim();
       requestedTeam = findTeamByAbbrev(leagueData, requestedAbbrev);
+
       if (!requestedTeam) {
         return interaction.editReply(`❌ No active team with abbreviation **${requestedAbbrev}**.`);
       }
     } else {
       requestedTeam = await getUserTeam(leagueData, interaction.user.id);
+
       if (!requestedTeam) {
         return interaction.editReply(
-          '❌ No team specified and no linked coach found. ' +
-            'Pass a team (e.g. `team: MSU`) or run `/iam coach:<your name>` first.'
+          '❌ No team specified and no linked coach found. Pass a team, like `team: MSU`, or run `/iam coach:<your name>` first.'
         );
       }
+
       requestedAbbrev = requestedTeam.abbrev;
     }
 
@@ -296,6 +299,7 @@ module.exports = {
 
     const completedGames = allGames.filter((g) => {
       const teams = g.teams || [];
+
       return (
         teams.some((t) => t.tid === requestedTeam.tid) &&
         teams.length === 2 &&
@@ -318,6 +322,7 @@ module.exports = {
       if (!gamesByWeek.has(week)) {
         gamesByWeek.set(week, []);
       }
+
       gamesByWeek.get(week).push(game);
     }
 
@@ -327,16 +332,13 @@ module.exports = {
 
     if (!gamesThisWeek?.length) {
       return interaction.editReply(
-        `No completed game found for **${getTeamName(requestedTeam)}** in Week ${requestedWeek}. ` +
-        `Weeks with games: ${availableWeeks.slice(0, 12).join(', ')}`
+        `No completed game found for **${getTeamName(requestedTeam)}** in ${getWeekLabel(requestedWeek)}. ` +
+        `Weeks with games: ${availableWeeks.slice(0, 12).map(getWeekLabel).join(', ')}`
       );
     }
 
     const game = gamesThisWeek[0];
 
-    // FBGM convention in your file:
-    // game.teams[0] = home
-    // game.teams[1] = away
     const homeSide = game.teams?.[0];
     const awaySide = game.teams?.[1];
 
@@ -360,11 +362,14 @@ module.exports = {
     const homeLeaders = buildTeamGameLeaders(homeSide, leagueData, season, rosterByPid);
     const awayLeaders = buildTeamGameLeaders(awaySide, leagueData, season, rosterByPid);
 
-    const fallbackUsed = !homeLeaders.fromGame || !awayLeaders.fromGame;
+    const label = getWeekLabel(requestedWeek);
+    const matchup = isPostseason(requestedWeek)
+      ? `${awayName} ${awayPts} vs ${homePts} ${homeName}`
+      : `${awayName} ${awayPts} @ ${homePts} ${homeName}`;
 
     const embed = new EmbedBuilder()
       .setColor(requestedWon ? 0x2ecc71 : 0xe74c3c)
-      .setTitle(`Week ${requestedWeek} • ${awayName} ${awayPts} @ ${homePts} ${homeName}`)
+      .setTitle(`${label} • ${matchup}`)
       .addFields(
         {
           name: '\u200B',

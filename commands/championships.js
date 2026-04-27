@@ -85,12 +85,24 @@ function compareWinner(a, b, scope) {
   return a.teamName.localeCompare(b.teamName);
 }
 
-function recordLine(row, scope) {
-  const rec = scope === 'division'
-    ? `${row.wonDiv}-${row.lostDiv}${row.tiedDiv ? `-${row.tiedDiv}` : ''} div`
-    : `${row.wonConf}-${row.lostConf}${row.tiedConf ? `-${row.tiedConf}` : ''} conf`;
+function teamOnlyLine(row) {
+  return row.teamName;
+}
 
-  return `${row.teamName} (${rec}, ${row.won}-${row.lost}${row.tied ? `-${row.tied}` : ''})`;
+function getConferenceAbbrev(leagueData, cid) {
+  const conf = (leagueData.confs || leagueData.conferences || []).find((c) => c.cid === cid);
+  if (!conf) return String(getConferenceName(leagueData, cid) || '').split(/\s+/).map((w) => w[0]).join('').toUpperCase();
+
+  return (
+    conf.abbrev ||
+    conf.abbr ||
+    conf.shortName ||
+    String(conf.name || getConferenceName(leagueData, cid) || '')
+      .split(/\s+/)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase()
+  );
 }
 
 function findHeader(rows) {
@@ -122,9 +134,7 @@ function parseResumeAssignments(rows) {
   };
 
   if (yearCol !== -1) {
-    for (const r of rows.slice(hi + 1)) {
-      add(r[yearCol], r[teamCol], r[coachCol]);
-    }
+    for (const r of rows.slice(hi + 1)) add(r[yearCol], r[teamCol], r[coachCol]);
     return map;
   }
 
@@ -179,11 +189,10 @@ function buildNatChamps(leagueData, coachMap, coachFilter = null) {
     const maxRounds = Math.max(...teams.map((t) => t.playoffRoundsWon));
     if (maxRounds <= 0) continue;
 
-    const winners = teams
+    const champ = teams
       .filter((t) => t.playoffRoundsWon === maxRounds)
-      .sort((a, b) => compareWinner(a, b, 'conference'));
+      .sort((a, b) => compareWinner(a, b, 'conference'))[0];
 
-    const champ = winners[0];
     const coach = coachFor(coachMap, year, champ.teamName);
 
     champs.push({
@@ -216,10 +225,7 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
   const groups = new Map();
 
   for (const r of rows) {
-    const key = scope === 'division'
-      ? `${r.year}|${r.did}`
-      : `${r.year}|${r.cid}`;
-
+    const key = scope === 'division' ? `${r.year}|${r.did}` : `${r.year}|${r.cid}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
   }
@@ -228,18 +234,30 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
 
   for (const teams of groups.values()) {
     const winner = [...teams].sort((a, b) => compareWinner(a, b, scope))[0];
-    const groupId = scope === 'division' ? winner.did : winner.cid;
-    const groupName = scope === 'division'
-      ? getDivisionName(leagueData, groupId)
-      : getConferenceName(leagueData, groupId);
 
-    winners.push({
-      year: winner.year,
-      groupId,
-      groupName,
-      winner,
-      line: `**${winner.year}** — ${groupName}: ${recordLine(winner, scope)}`,
-    });
+    if (scope === 'division') {
+      const confAbbrev = getConferenceAbbrev(leagueData, winner.cid);
+      const divName = getDivisionName(leagueData, winner.did);
+      const groupName = `${confAbbrev} ${divName}`;
+
+      winners.push({
+        year: winner.year,
+        groupId: winner.did,
+        groupName,
+        winner,
+        line: `**${winner.year}** — ${groupName}: ${teamOnlyLine(winner)}`,
+      });
+    } else {
+      const groupName = getConferenceName(leagueData, winner.cid);
+
+      winners.push({
+        year: winner.year,
+        groupId: winner.cid,
+        groupName,
+        winner,
+        line: `**${winner.year}** — ${groupName}: ${teamOnlyLine(winner)}`,
+      });
+    }
   }
 
   return winners.sort((a, b) => {
@@ -293,9 +311,6 @@ function makeFieldsFromGrouped(titleedGroups) {
 async function autocomplete(interaction) {
   const focused = interaction.options.getFocused(true);
   if (focused.name !== 'coach') return interaction.respond([]);
-
-  const leagueData = getLatestLeagueData();
-  if (!leagueData?.teams) return interaction.respond([]);
 
   const coachMap = await getCoachMap();
   const q = normalize(focused.value);
@@ -361,11 +376,11 @@ module.exports = {
       const groups = [
         {
           name: 'Conference Champions',
-          lines: conf.map((x) => `**${x.groupName}** — ${recordLine(x.winner, 'conference')}`),
+          lines: conf.map((x) => `**${x.groupName}** — ${teamOnlyLine(x.winner)}`),
         },
         {
           name: 'Division Champions',
-          lines: div.map((x) => `**${x.groupName}** — ${recordLine(x.winner, 'division')}`),
+          lines: div.map((x) => `**${x.groupName}** — ${teamOnlyLine(x.winner)}`),
         },
       ];
 

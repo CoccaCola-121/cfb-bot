@@ -3,8 +3,16 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const {
+  getLatestLeagueData,
+  getCurrentSeason,
+  getLatestTeamSeason,
+  getTeamName,
+  safeNumber,
+} = require('../utils/data');
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
+const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
@@ -108,10 +116,7 @@ function parseActiveCoachNames(rows) {
   const header = rows[hi].map((c) => String(c || '').trim().toLowerCase());
   let coachCol = header.findIndex((h) => h === 'coach');
 
-  if (coachCol === -1) {
-    coachCol = header.findIndex((h) => h.includes('coach'));
-  }
-
+  if (coachCol === -1) coachCol = header.findIndex((h) => h.includes('coach'));
   if (coachCol === -1) coachCol = 0;
 
   const active = new Set();
@@ -123,6 +128,72 @@ function parseActiveCoachNames(rows) {
   }
 
   return active;
+}
+
+function findTeamBySheetName(leagueData, teamName) {
+  const q = normalize(teamName);
+
+  return (leagueData.teams || []).find((team) => {
+    if (team.disabled) return false;
+
+    const aliases = [
+      getTeamName(team),
+      team.region,
+      team.name,
+      team.abbrev,
+      `${team.region || ''} ${team.name || ''}`.trim(),
+    ]
+      .filter(Boolean)
+      .map(normalize);
+
+    return aliases.some((a) => a === q || a.includes(q) || q.includes(a));
+  });
+}
+
+function getPlayoffRecordForTeam(leagueData, teamTid, season) {
+  const games = (leagueData.games || []).filter((g) => {
+    if (!Array.isArray(g.teams) || g.teams.length !== 2) return false;
+    if (!g.teams.some((t) => t.tid === teamTid)) return false;
+    if (!g.teams.every((t) => typeof t.pts === 'number')) return false;
+
+    if (g.season !== undefined && Number(g.season) !== Number(season)) return false;
+
+    return Boolean(g.playoffs) || Number(g.day) > REG_SEASON_WEEKS;
+  });
+
+  let wins = 0;
+  let losses = 0;
+
+  for (const g of games) {
+    const teamSide = g.teams.find((t) => t.tid === teamTid);
+    const oppSide = g.teams.find((t) => t.tid !== teamTid);
+    if (!teamSide || !oppSide) continue;
+
+    if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins++;
+    else losses++;
+  }
+
+  return { wins, losses };
+}
+
+function patchCurrentSeasonRows(allRows, leagueData, currentSeason) {
+  return allRows.map((row) => {
+    if (Number(row.year) !== Number(currentSeason) || !row.team) return row;
+
+    const team = findTeamBySheetName(leagueData, row.team);
+    if (!team) return row;
+
+    const season = getLatestTeamSeason(team, currentSeason);
+    if (!season) return row;
+
+    const playoff = getPlayoffRecordForTeam(leagueData, team.tid, currentSeason);
+
+    return {
+      ...row,
+      wins: safeNumber(season.won) + playoff.wins,
+      losses: safeNumber(season.lost) + playoff.losses,
+    };
+  });
 }
 
 function buildDynastyRunsForCoach(coach, rows) {
@@ -165,7 +236,7 @@ function buildDynastyRunsForCoach(coach, rows) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dynastytracker')
-    .setDescription('Active multi-year tenures at a single program')
+    .setDescription('Active dynasties at one program, top 10')
     .addIntegerOption((opt) =>
       opt
         .setName('min')
@@ -173,19 +244,18 @@ module.exports = {
         .setRequired(false)
         .setMinValue(2)
         .setMaxValue(20)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('coach')
-        .setDescription('Filter to one coach')
-        .setRequired(false)
     ),
 
   async execute(interaction) {
     await interaction.deferReply();
 
+    const leagueData = getLatestLeagueData();
+    if (!leagueData?.teams) {
+      return interaction.editReply('❌ No league data loaded. Ask a commissioner to run `/loadweek`.');
+    }
+
+    const currentSeason = Number(getCurrentSeason(leagueData));
     const minYears = interaction.options.getInteger('min') || 5;
-    const coachArg = interaction.options.getString('coach');
 
     let resumeRows;
     let coachSheetRows;
@@ -207,10 +277,12 @@ module.exports = {
       return interaction.editReply('❌ Live Coach sheet returned no active coaches.');
     }
 
-    const allRows = parseResumeRows(resumeRows);
+    let allRows = parseResumeRows(resumeRows);
     if (!allRows.length) {
       return interaction.editReply('❌ Resume sheet returned no rows.');
     }
+
+    allRows = patchCurrentSeasonRows(allRows, leagueData, currentSeason);
 
     const byCoach = new Map();
 
@@ -227,24 +299,12 @@ module.exports = {
 
     allRuns = allRuns.filter((s) => {
       if (s.years < minYears) return false;
+      if (Number(s.endYear) !== currentSeason) return false;
       return activeCoachNames.has(normalize(s.coach));
     });
 
-    if (coachArg) {
-      const q = normalize(coachArg);
-
-      allRuns = allRuns.filter((s) => {
-        const cn = normalize(s.coach);
-        return cn === q || (q.length >= 3 && cn.includes(q));
-      });
-    }
-
     if (!allRuns.length) {
-      return interaction.editReply(
-        coachArg
-          ? `❌ No active dynasties of ${minYears}+ seasons found for **${coachArg}**.`
-          : `❌ No active dynasties of ${minYears}+ seasons found.`
-      );
+      return interaction.editReply(`❌ No active dynasties of ${minYears}+ seasons found through ${currentSeason}.`);
     }
 
     allRuns.sort((a, b) => {
@@ -253,7 +313,8 @@ module.exports = {
       const apct = a.wins + a.losses > 0 ? a.wins / (a.wins + a.losses) : 0;
       const bpct = b.wins + b.losses > 0 ? b.wins / (b.wins + b.losses) : 0;
 
-      return bpct - apct;
+      if (bpct !== apct) return bpct - apct;
+      return b.wins - a.wins;
     });
 
     const top = allRuns.slice(0, 10);
@@ -272,8 +333,9 @@ module.exports = {
       .setColor(0x16a085)
       .setDescription(lines.join('\n'))
       .setFooter({
-        text: `Active dynasties (5+ yrs) — Top 10 • ${allRuns.length} qualifying active run${allRuns.length === 1 ? '' : 's'}`,
-      });
+        text: `Active dynasties through ${currentSeason} only • ${allRuns.length} qualifying active run${allRuns.length === 1 ? '' : 's'}`,
+      })
+      .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });
   },

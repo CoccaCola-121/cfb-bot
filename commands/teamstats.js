@@ -25,6 +25,7 @@ const {
 } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
+const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
 
 const INFO_SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||
@@ -54,6 +55,32 @@ function ordinal(n) {
     case 3: return `${num}rd`;
     default: return `${num}th`;
   }
+}
+
+function getPlayoffRecordForTeam(leagueData, teamTid, season) {
+  const games = (leagueData.games || []).filter((g) => {
+    if (!Array.isArray(g.teams) || g.teams.length !== 2) return false;
+    if (!g.teams.some((t) => t.tid === teamTid)) return false;
+    if (!g.teams.every((t) => typeof t.pts === 'number')) return false;
+
+    if (g.season !== undefined && Number(g.season) !== Number(season)) return false;
+
+    return Boolean(g.playoffs) || Number(g.day) > REG_SEASON_WEEKS;
+  });
+
+  let wins = 0;
+  let losses = 0;
+
+  for (const g of games) {
+    const teamSide = g.teams.find((t) => t.tid === teamTid);
+    const oppSide = g.teams.find((t) => t.tid !== teamTid);
+    if (!teamSide || !oppSide) continue;
+
+    if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins++;
+    else losses++;
+  }
+
+  return { wins, losses };
 }
 
 function addCompetitionRanks(items, key, ascending = false) {
@@ -136,8 +163,6 @@ function findCol(colMap, exactKeys, containsKeys = []) {
   return -1;
 }
 
-// Dynamically find the header row ("Name" column somewhere in the first ~10 rows)
-// and parse out recruit rows. Mirrors the proven logic in /recruitingclass.
 function toRecruitObjects(rows) {
   let headerIdx = -1;
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
@@ -179,9 +204,6 @@ function toRecruitObjects(rows) {
     .filter((r) => r && r.Name);
 }
 
-// Parse the 247 class-rank tab. Columns: A=rank, B=school, C=score, D=#recruits,
-// then recruit IDs. Teams with 0 recruits share the lowest 0-recruit rank
-// (matches /recruitingclass).
 function build247Data(rows) {
   const teamMap = new Map();
   const recruitMap = new Map();
@@ -252,8 +274,6 @@ function get247TeamInfo(team, team247Map) {
   return null;
 }
 
-// Try GID first, then a list of plausible tab names. Mirrors /recruitingclass
-// fetchRanks247() so both commands find the same tab reliably.
 async function fetchRanks247() {
   if (RECRUITING_RANKS_SHEET_GID) {
     try {
@@ -301,9 +321,6 @@ function buildRecruitingSummaryForTeam(allRows, team, team247Map, recruit247Map)
 
   const class247 = get247TeamInfo(team, team247Map);
 
-  // If there are no recruits on the NZCFL Info tab yet but the 247 class data
-  // has a matching team entry, still surface class score / rank so the field
-  // isn't "?" early in the cycle.
   if (!recruits.length) {
     if (!class247) return null;
     return {
@@ -397,10 +414,6 @@ module.exports = {
     }
 
     try {
-      // The NZCFL Info recruiting tab is named by the current (in-progress)
-      // season — this is the same convention /recruitingclass uses. Previously
-      // this used `currentSeason + 1`, which pointed at a tab that doesn't
-      // exist yet and caused class score / commit count to silently fail.
       const recruitingSheetName = `${currentSeason} Recruiting`;
 
       const [recruitingRows, recruiting247Rows] = await Promise.all([
@@ -425,11 +438,17 @@ module.exports = {
     const rankMaps = buildTeamRankMaps(leagueData, currentSeason);
     const teamLogo = getTeamLogoUrl(team);
 
-    const wins = Number(season.won ?? 0);
-    const losses = Number(season.lost ?? 0);
+    let wins = Number(season.won ?? 0);
+    let losses = Number(season.lost ?? 0);
     const ties = Number(season.tied ?? 0);
 
-    const gp = safeNumber(stats.gp, wins + losses + ties);
+    if (Number(season.season) === currentSeason) {
+      const playoffRecord = getPlayoffRecordForTeam(leagueData, team.tid, currentSeason);
+      wins += playoffRecord.wins;
+      losses += playoffRecord.losses;
+    }
+
+    const gp = safeNumber(stats.gp, Number(season.won ?? 0) + Number(season.lost ?? 0) + ties);
     const pts = safeNumber(stats.pts);
     const oppPts = safeNumber(stats.oppPts);
     const ppg = gp > 0 ? pts / gp : 0;
@@ -460,13 +479,11 @@ module.exports = {
       `Takeaways: **${takeaways}** (${ordinal(rankMaps.takeaways.get(team.tid))})`,
     ];
 
-    // Line 1: Open Scholarships and Commits
     const recruitingLine1 = [
       `Open Scholarships: **${scholarshipInfo?.scholarshipsAvailable ?? '?'}**`,
       `Commits: **${recruitingInfo?.recruitCount ?? 0}**`,
     ].join('  •  ');
 
-    // Line 2: Class Score and Class Rank
     const recruitingLine2Parts = [
       `Class Score: **${recruitingInfo?.classScore?.toFixed?.(3) ?? '?'}**`,
     ];
