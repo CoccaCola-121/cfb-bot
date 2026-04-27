@@ -125,42 +125,70 @@ function cleanDivisionName(divName) {
     .trim();
 }
 
-function parseResumeRows(rows) {
-  let hi = -1;
-
+function findResumeHeader(rows) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i].map((c) => String(c || '').toLowerCase().trim());
-    if (r.includes('coach') && r.includes('total')) {
-      hi = i;
-      break;
-    }
+    if (r.includes('coach') && r.includes('total')) return i;
+    if (r.includes('coach') && r.some((c) => /\b20\d{2}\b/.test(c))) return i;
   }
 
+  return -1;
+}
+
+function parseRecordAndMaybeTeam(value) {
+  const raw = String(value || '').trim();
+  const m = raw.match(/^(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
+
+  if (!m) return null;
+
+  return {
+    wins: Number(m[1]),
+    losses: Number(m[2]),
+    team: m[3] ? String(m[3]).trim() : null,
+  };
+}
+
+function classifyYearColumn(headerText) {
+  const h = String(headerText || '').toLowerCase();
+
+  if (/(team|school|program)/i.test(h)) return 'team';
+  if (/(rec|record|w-l|wl|w\/l|wins|losses)/i.test(h)) return 'record';
+
+  return 'unknown';
+}
+
+function parseResumeRows(rows) {
+  const hi = findResumeHeader(rows);
   if (hi === -1) return [];
 
   const header = rows[hi].map((c) => String(c || '').trim());
-  const coachCol = header.findIndex((h) => h.toLowerCase() === 'coach');
+  const lower = header.map((h) => h.toLowerCase());
+
+  const coachCol = lower.findIndex((h) => h === 'coach' || h.includes('coach'));
   if (coachCol === -1) return [];
 
-  const yearIdxs = header
-    .map((h, i) => (/^\d{4}$/.test(h) ? i : -1))
-    .filter((i) => i >= 0);
+  const yearCols = [];
 
-  const seen = new Set();
-  let splitAt = -1;
+  for (let i = 0; i < header.length; i++) {
+    const match = String(header[i] || '').match(/\b(20\d{2})\b/);
+    if (!match) continue;
 
-  for (let i = 0; i < yearIdxs.length; i++) {
-    const y = header[yearIdxs[i]];
-    if (seen.has(y)) {
-      splitAt = i;
-      break;
-    }
-    seen.add(y);
+    yearCols.push({
+      col: i,
+      year: match[1],
+      kind: classifyYearColumn(header[i]),
+      rawHeader: header[i],
+    });
   }
 
-  const recordYearCols = splitAt >= 0 ? yearIdxs.slice(0, splitAt) : yearIdxs;
-  const teamYearCols = splitAt >= 0 ? yearIdxs.slice(splitAt) : [];
+  if (!yearCols.length) return [];
 
+  const yearCounts = new Map();
+  for (const yc of yearCols) {
+    yearCounts.set(yc.year, (yearCounts.get(yc.year) || 0) + 1);
+  }
+
+  const hasDuplicateYearBlocks = [...yearCounts.values()].some((count) => count > 1);
   const out = [];
 
   for (let i = hi + 1; i < rows.length; i++) {
@@ -169,32 +197,60 @@ function parseResumeRows(rows) {
     if (!coach) continue;
 
     const recordByYear = new Map();
-    for (const col of recordYearCols) {
-      const y = header[col];
-      const v = String(r[col] || '').trim();
-      if (v && /^\d{1,2}-\d{1,2}$/.test(v)) recordByYear.set(y, v);
-    }
-
     const teamByYear = new Map();
-    for (const col of teamYearCols) {
-      const y = header[col];
-      const v = String(r[col] || '').trim();
-      if (v) teamByYear.set(y, v);
+
+    if (hasDuplicateYearBlocks) {
+      const seenYear = new Set();
+
+      for (const yc of yearCols) {
+        const cell = String(r[yc.col] || '').trim();
+        if (!cell) continue;
+
+        if (!seenYear.has(yc.year)) {
+          const parsed = parseRecordAndMaybeTeam(cell);
+          if (parsed) {
+            recordByYear.set(yc.year, parsed);
+            if (parsed.team) teamByYear.set(yc.year, parsed.team);
+          } else if (yc.kind === 'team') {
+            teamByYear.set(yc.year, cell);
+          }
+          seenYear.add(yc.year);
+        } else {
+          teamByYear.set(yc.year, cell);
+        }
+      }
+    } else {
+      for (const yc of yearCols) {
+        const cell = String(r[yc.col] || '').trim();
+        if (!cell) continue;
+
+        const parsed = parseRecordAndMaybeTeam(cell);
+
+        if (yc.kind === 'team') {
+          teamByYear.set(yc.year, cell);
+        } else if (parsed) {
+          recordByYear.set(yc.year, parsed);
+          if (parsed.team) teamByYear.set(yc.year, parsed.team);
+        } else if (yc.kind === 'record') {
+          continue;
+        } else {
+          teamByYear.set(yc.year, cell);
+        }
+      }
     }
 
     const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])];
 
     for (const y of allYears) {
       const rec = recordByYear.get(y);
-      const team = teamByYear.get(y);
-      const m = rec ? rec.match(/^(\d+)-(\d+)$/) : null;
+      const team = teamByYear.get(y) || rec?.team || null;
 
       out.push({
         year: Number(y),
         coach,
-        team: team || null,
-        wins: m ? +m[1] : 0,
-        losses: m ? +m[2] : 0,
+        team,
+        wins: rec ? rec.wins : 0,
+        losses: rec ? rec.losses : 0,
       });
     }
   }
@@ -206,24 +262,46 @@ async function getResumeRows() {
   try {
     const rows = await fetchSheetCsv(SHEET_ID, RESUME_TAB);
     return parseResumeRows(rows);
-  } catch {
+  } catch (err) {
+    console.error('championships resume parse error:', err);
     return [];
   }
 }
 
-function coachForYearTeam(resumeRows, year, teamName) {
-  const targetTeam = normalize(teamName);
+function teamAliasesForRow(row) {
+  const team = row.team;
 
-  const exact = resumeRows.find(
-    (r) => Number(r.year) === Number(year) && r.team && normalize(r.team) === targetTeam
-  );
+  return [
+    getTeamName(team),
+    team?.region,
+    team?.name,
+    team?.abbrev,
+    `${team?.region || ''} ${team?.name || ''}`.trim(),
+  ]
+    .filter(Boolean)
+    .map(normalize);
+}
+
+function coachForYearTeam(resumeRows, year, teamRow) {
+  const aliases = teamAliasesForRow(teamRow);
+
+  const exact = resumeRows.find((r) => {
+    if (Number(r.year) !== Number(year) || !r.team) return false;
+    const rt = normalize(r.team);
+    return aliases.some((a) => rt === a);
+  });
 
   if (exact) return exact.coach;
 
   const fuzzy = resumeRows.find((r) => {
     if (Number(r.year) !== Number(year) || !r.team) return false;
+
     const rt = normalize(r.team);
-    return rt === targetTeam || rt.includes(targetTeam) || targetTeam.includes(rt);
+    return aliases.some((a) => {
+      if (!a || !rt) return false;
+      if (a.length <= 3 || rt.length <= 3) return rt === a;
+      return rt.includes(a) || a.includes(rt);
+    });
   });
 
   return fuzzy?.coach || 'Unknown Coach';
@@ -248,7 +326,7 @@ function buildNatChamps(leagueData, resumeRows, currentSeason, coachFilter = nul
       .filter((t) => t.playoffRoundsWon === maxRounds)
       .sort((a, b) => compareWinner(a, b, 'conference'))[0];
 
-    const coach = coachForYearTeam(resumeRows, year, champ.teamName);
+    const coach = coachForYearTeam(resumeRows, year, champ);
 
     champs.push({
       year,
@@ -302,7 +380,6 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
         groupId: winner.did,
         groupName,
         winner,
-        line: `**${winner.year}** — ${groupName}: ${teamOnlyLine(winner)}`,
       });
     } else {
       const groupName = getConferenceName(leagueData, winner.cid);
@@ -312,7 +389,6 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
         groupId: winner.cid,
         groupName,
         winner,
-        line: `**${winner.year}** — ${groupName}: ${teamOnlyLine(winner)}`,
       });
     }
   }
@@ -321,23 +397,6 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
     if (b.year !== a.year) return b.year - a.year;
     return String(a.groupName).localeCompare(String(b.groupName));
   });
-}
-
-function makeDescription(lines, limit = 80) {
-  const kept = [];
-  let chars = 0;
-
-  for (const line of lines) {
-    const next = chars + line.length + 1;
-    if (kept.length >= limit || next > MAX_EMBED_CHARS) break;
-    kept.push(line);
-    chars = next;
-  }
-
-  const remaining = lines.length - kept.length;
-  if (remaining > 0) kept.push(`\n…and ${remaining} more`);
-
-  return kept.join('\n') || 'No results found.';
 }
 
 function makeFieldsFromGrouped(titledGroups) {
@@ -385,22 +444,11 @@ async function autocomplete(interaction) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('championships')
-    .setDescription('Show national, conference, and division championship history')
-    .addStringOption((opt) =>
-      opt
-        .setName('view')
-        .setDescription('Championship view')
-        .addChoices(
-          { name: 'National champions', value: 'natchamps' },
-          { name: 'Conference champions', value: 'conference' },
-          { name: 'Division champions', value: 'division' }
-        )
-        .setRequired(false)
-    )
+    .setDescription('Show championship history')
     .addIntegerOption((opt) =>
       opt
         .setName('year')
-        .setDescription('Season year')
+        .setDescription('Show conference and division champions for a season')
         .setRequired(false)
     )
     .addStringOption((opt) =>
@@ -417,11 +465,8 @@ module.exports = {
     await interaction.deferReply();
 
     const leagueData = getLatestLeagueData();
-    if (!leagueData?.teams) {
-      return interaction.editReply('❌ No league data loaded.');
-    }
+    if (!leagueData?.teams) return interaction.editReply('❌ No league data loaded.');
 
-    const view = interaction.options.getString('view');
     const year = interaction.options.getInteger('year');
     const coach = interaction.options.getString('coach');
     const resumeRows = await getResumeRows();
@@ -429,11 +474,15 @@ module.exports = {
     const currentSeason = Number(getCurrentSeason(leagueData));
     const targetYear = Number.isFinite(year) ? year : null;
 
-    if (targetYear !== null && !view && !coach) {
+    if (targetYear !== null && !coach) {
       const conf = buildGroupWinners(leagueData, 'conference', targetYear);
       const div = buildGroupWinners(leagueData, 'division', targetYear);
 
-      const groups = [
+      if (!conf.length && !div.length) {
+        return interaction.editReply(`❌ No championship data found for **${targetYear}**.`);
+      }
+
+      const { fields, remaining } = makeFieldsFromGrouped([
         {
           name: 'Conference Champions',
           lines: conf.map((x) => `**${x.groupName}** — ${teamOnlyLine(x.winner)}`),
@@ -442,9 +491,7 @@ module.exports = {
           name: 'Division Champions',
           lines: div.map((x) => `**${x.groupName}** — ${teamOnlyLine(x.winner)}`),
         },
-      ];
-
-      const { fields, remaining } = makeFieldsFromGrouped(groups);
+      ]);
 
       const embed = new EmbedBuilder()
         .setTitle(`Championships — ${targetYear}`)
@@ -452,57 +499,32 @@ module.exports = {
         .addFields(fields)
         .setTimestamp();
 
-      if (remaining > 0) {
-        embed.setFooter({ text: `…and ${remaining} more` });
-      }
+      if (remaining > 0) embed.setFooter({ text: `…and ${remaining} more` });
 
       return interaction.editReply({ embeds: [embed] });
     }
 
-    if (!view || view === 'natchamps' || coach) {
-      const champs = buildNatChamps(leagueData, resumeRows, currentSeason, coach);
+    const champs = buildNatChamps(leagueData, resumeRows, currentSeason, coach);
 
-      if (!champs.length) {
-        return interaction.editReply(
-          coach
-            ? `❌ No national titles found for **${coach}**.`
-            : '❌ No national champions found.'
-        );
-      }
-
-      const display = champs.slice(0, MAX_NAT_TITLES_DISPLAY);
-
-      const embed = new EmbedBuilder()
-        .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
-        .setColor(0xf1c40f)
-        .setDescription(display.map((c) => c.line).join('\n'))
-        .setTimestamp();
-
-      return interaction.editReply({ embeds: [embed] });
+    if (!champs.length) {
+      return interaction.editReply(
+        coach ? `❌ No national titles found for **${coach}**.` : '❌ No national champions found.'
+      );
     }
 
-    if (view === 'conference' || view === 'division') {
-      const winners = buildGroupWinners(leagueData, view, targetYear);
+    const display = champs.slice(0, MAX_NAT_TITLES_DISPLAY);
+    const footerText =
+      champs.length > MAX_NAT_TITLES_DISPLAY
+        ? `Showing ${MAX_NAT_TITLES_DISPLAY} most recent of ${champs.length} total champions`
+        : `Showing all ${champs.length} champion${champs.length === 1 ? '' : 's'}`;
 
-      if (!winners.length) {
-        return interaction.editReply(
-          `❌ No ${view} winners found${targetYear ? ` for **${targetYear}**` : ''}.`
-        );
-      }
+    const embed = new EmbedBuilder()
+      .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
+      .setColor(0xf1c40f)
+      .setDescription(display.map((c) => c.line).join('\n'))
+      .setFooter({ text: footerText })
+      .setTimestamp();
 
-      const title = targetYear
-        ? `${view === 'conference' ? 'Conference' : 'Division'} Champions — ${targetYear}`
-        : `${view === 'conference' ? 'Conference' : 'Division'} Champions`;
-
-      const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setColor(view === 'conference' ? 0x9b59b6 : 0x3498db)
-        .setDescription(makeDescription(winners.map((w) => w.line)))
-        .setTimestamp();
-
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    return interaction.editReply('❌ Unknown championships view.');
+    return interaction.editReply({ embeds: [embed] });
   },
 };
