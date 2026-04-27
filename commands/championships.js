@@ -299,7 +299,11 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
     if (scope === 'division') {
       const confAbbrev = getConferenceAbbrev(leagueData, winner.cid);
       const divName = getDivisionName(leagueData, winner.did);
-      const groupName = `${confAbbrev} ${divName}`;
+      const cleanedDivName = String(divName || '')
+      .replace(/^USA\s*[-–—]\s*/i, '')
+      .trim();
+
+      const groupName = `${confAbbrev} ${cleanedDivName}`;
 
       winners.push({
         year: winner.year,
@@ -448,13 +452,10 @@ module.exports = {
       const { fields, remaining } = makeFieldsFromGrouped(groups);
 
       const embed = new EmbedBuilder()
-        .setTitle(`Championships — ${targetYear}`)
-        .setColor(0xf1c40f)
-        .addFields(fields)
-        .setFooter({
-          text: remaining > 0 ? `…and ${remaining} more` : 'Conference and division winners',
-        })
-        .setTimestamp();
+     .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
+      .setColor(0xf1c40f)
+      .setDescription(display.map((c) => c.line).join('\n'))
+      .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
     }
