@@ -71,13 +71,15 @@ function pct(w, l, t = 0) {
 }
 
 function compareWinner(a, b, scope) {
-  const aPct = scope === 'division'
-    ? pct(a.wonDiv, a.lostDiv, a.tiedDiv)
-    : pct(a.wonConf, a.lostConf, a.tiedConf);
+  const aPct =
+    scope === 'division'
+      ? pct(a.wonDiv, a.lostDiv, a.tiedDiv)
+      : pct(a.wonConf, a.lostConf, a.tiedConf);
 
-  const bPct = scope === 'division'
-    ? pct(b.wonDiv, b.lostDiv, b.tiedDiv)
-    : pct(b.wonConf, b.lostConf, b.tiedConf);
+  const bPct =
+    scope === 'division'
+      ? pct(b.wonDiv, b.lostDiv, b.tiedDiv)
+      : pct(b.wonConf, b.lostConf, b.tiedConf);
 
   if (bPct !== aPct) return bPct - aPct;
   if (b.playoffRoundsWon !== a.playoffRoundsWon) return b.playoffRoundsWon - a.playoffRoundsWon;
@@ -94,38 +96,33 @@ function getConferenceAbbrev(leagueData, cid) {
   const rawName = String(getConferenceName(leagueData, cid) || '').trim();
   const norm = normalize(rawName).replace(/[^a-z0-9]/g, '');
 
-  // --- HARD MATCHES (robust against spacing/dashes/etc) ---
   if (norm.includes('bigten')) return 'B1G';
   if (norm.includes('big12') || norm.includes('bigtwelve')) return 'B12';
-
   if (norm.includes('conferenceusa') || norm.includes('cusa') || norm.includes('cuusa')) return 'C-USA';
-
   if (norm.includes('pac12') || norm.includes('pactwelve') || norm.includes('pacificcoast') || norm.includes('pcc')) return 'P12';
-
   if (norm.includes('southeastern') || norm === 'sec') return 'SEC';
-
   if (norm.includes('mountainwest') || norm.includes('mwc')) return 'MW';
-
   if (norm.includes('americanathletic') || norm.includes('aac')) return 'AAC';
-
   if (norm.includes('atlanticcoast') || norm.includes('acc')) return 'ACC';
-
-  if (norm.includes('midamerican') || norm === 'mac' || norm.includes('mc')) return 'MAC';
-
+  if (norm.includes('midamerican') || norm === 'mac' || norm === 'mc') return 'MAC';
   if (norm.includes('sunbelt') || norm.includes('sbc')) return 'SBC';
 
-  // --- fallback to raw abbrev if exists ---
   const conf = (leagueData.confs || leagueData.conferences || []).find((c) => c.cid === cid);
   const rawAbbrev = String(conf?.abbrev || conf?.abbr || conf?.shortName || '').trim();
 
   if (rawAbbrev) return rawAbbrev;
 
-  // --- final fallback ---
   return rawName
     .split(/\s+/)
     .map((w) => w[0])
     .join('')
     .toUpperCase();
+}
+
+function cleanDivisionName(divName) {
+  return String(divName || '')
+    .replace(/^USA\s*[-–—]\s*/i, '')
+    .trim();
 }
 
 function parseResumeRows(rows) {
@@ -217,17 +214,14 @@ async function getResumeRows() {
 function coachForYearTeam(resumeRows, year, teamName) {
   const targetTeam = normalize(teamName);
 
-  const exact = resumeRows.find((r) =>
-    Number(r.year) === Number(year) &&
-    r.team &&
-    normalize(r.team) === targetTeam
+  const exact = resumeRows.find(
+    (r) => Number(r.year) === Number(year) && r.team && normalize(r.team) === targetTeam
   );
 
   if (exact) return exact.coach;
 
   const fuzzy = resumeRows.find((r) => {
     if (Number(r.year) !== Number(year) || !r.team) return false;
-
     const rt = normalize(r.team);
     return rt === targetTeam || rt.includes(targetTeam) || targetTeam.includes(rt);
   });
@@ -280,7 +274,9 @@ function buildNatChamps(leagueData, resumeRows, currentSeason, coachFilter = nul
 function buildGroupWinners(leagueData, scope, targetYear = null) {
   const rows = teamSeasonRows(leagueData).filter((r) => {
     if (targetYear !== null && r.year !== targetYear) return false;
-    return scope === 'division' ? r.did !== undefined && r.did !== null : r.cid !== undefined && r.cid !== null;
+    return scope === 'division'
+      ? r.did !== undefined && r.did !== null
+      : r.cid !== undefined && r.cid !== null;
   });
 
   const groups = new Map();
@@ -298,12 +294,8 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
 
     if (scope === 'division') {
       const confAbbrev = getConferenceAbbrev(leagueData, winner.cid);
-      const divName = getDivisionName(leagueData, winner.did);
-      const cleanedDivName = String(divName || '')
-      .replace(/^USA\s*[-–—]\s*/i, '')
-      .trim();
-
-      const groupName = `${confAbbrev} ${cleanedDivName}`;
+      const divName = cleanDivisionName(getDivisionName(leagueData, winner.did));
+      const groupName = `${confAbbrev} ${divName}`;
 
       winners.push({
         year: winner.year,
@@ -348,12 +340,12 @@ function makeDescription(lines, limit = 80) {
   return kept.join('\n') || 'No results found.';
 }
 
-function makeFieldsFromGrouped(titleedGroups) {
+function makeFieldsFromGrouped(titledGroups) {
   const fields = [];
   let usedChars = 0;
   let remaining = 0;
 
-  for (const group of titleedGroups) {
+  for (const group of titledGroups) {
     const value = group.lines.join('\n') || 'None';
     const fieldChars = group.name.length + value.length;
 
@@ -367,6 +359,7 @@ function makeFieldsFromGrouped(titleedGroups) {
       value: value.slice(0, 1024),
       inline: false,
     });
+
     usedChars += fieldChars;
   }
 
@@ -400,7 +393,7 @@ module.exports = {
         .addChoices(
           { name: 'National champions', value: 'natchamps' },
           { name: 'Conference champions', value: 'conference' },
-          { name: 'Division champions', value: 'division' },
+          { name: 'Division champions', value: 'division' }
         )
         .setRequired(false)
     )
@@ -424,7 +417,9 @@ module.exports = {
     await interaction.deferReply();
 
     const leagueData = getLatestLeagueData();
-    if (!leagueData?.teams) return interaction.editReply('❌ No league data loaded.');
+    if (!leagueData?.teams) {
+      return interaction.editReply('❌ No league data loaded.');
+    }
 
     const view = interaction.options.getString('view');
     const year = interaction.options.getInteger('year');
@@ -452,10 +447,14 @@ module.exports = {
       const { fields, remaining } = makeFieldsFromGrouped(groups);
 
       const embed = new EmbedBuilder()
-     .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
-      .setColor(0xf1c40f)
-      .setDescription(display.map((c) => c.line).join('\n'))
-      .setTimestamp();
+        .setTitle(`Championships — ${targetYear}`)
+        .setColor(0xf1c40f)
+        .addFields(fields)
+        .setTimestamp();
+
+      if (remaining > 0) {
+        embed.setFooter({ text: `…and ${remaining} more` });
+      }
 
       return interaction.editReply({ embeds: [embed] });
     }
@@ -472,18 +471,11 @@ module.exports = {
       }
 
       const display = champs.slice(0, MAX_NAT_TITLES_DISPLAY);
-      const hidden = champs.length - display.length;
 
       const embed = new EmbedBuilder()
         .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
         .setColor(0xf1c40f)
         .setDescription(display.map((c) => c.line).join('\n'))
-        .setFooter({
-          text:
-            hidden > 0
-              ? `Showing ${display.length} of ${champs.length} completed title seasons • Current season ${currentSeason} excluded`
-              : `${champs.length} completed title season${champs.length === 1 ? '' : 's'} • Current season ${currentSeason} excluded`,
-        })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
@@ -493,7 +485,9 @@ module.exports = {
       const winners = buildGroupWinners(leagueData, view, targetYear);
 
       if (!winners.length) {
-        return interaction.editReply(`❌ No ${view} winners found${targetYear ? ` for **${targetYear}**` : ''}.`);
+        return interaction.editReply(
+          `❌ No ${view} winners found${targetYear ? ` for **${targetYear}**` : ''}.`
+        );
       }
 
       const title = targetYear
@@ -504,11 +498,6 @@ module.exports = {
         .setTitle(title)
         .setColor(view === 'conference' ? 0x9b59b6 : 0x3498db)
         .setDescription(makeDescription(winners.map((w) => w.line)))
-        .setFooter({
-          text: targetYear
-            ? `${winners.length} winner${winners.length === 1 ? '' : 's'}`
-            : `Newest first${Number.isFinite(currentSeason) ? ` • Current season ${currentSeason}` : ''}`,
-        })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
