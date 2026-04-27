@@ -17,6 +17,12 @@ const HISTORICAL_GID = process.env.RANKINGS_HISTORY_HISTORICAL_GID || '';
 const RANK_ROW_START = 1;     // skip the single header row
 const RANK_ROW_END_HARD = 28; // top 25 lives in rows 1..27
 
+function isUsableLatestColumn(column) {
+  if (!column) return false;
+  const header = String(column.rawHeader || '').trim().toLowerCase();
+  return Boolean(header) && header !== 'timeline';
+}
+
 function parseDisplayedRank(row, fallback) {
   if (!Array.isArray(row)) return fallback;
 
@@ -208,6 +214,7 @@ function findLatestColumn(rows, columnIndex) {
 
   for (let i = columnIndex.length - 1; i >= 1; i--) {
     const column = columnIndex[i];
+    if (!isUsableLatestColumn(column)) continue;
     for (let r = RANK_ROW_START; r < dataEnd; r++) {
       if (String(rows[r]?.[column.col] || '').trim()) {
         return column;

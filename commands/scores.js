@@ -10,7 +10,7 @@ const {
   getGameWeek,
   getGameTeamDisplayName,
 } = require('../utils/data');
-const { getWeekLabel } = require('../utils/weekLabels');
+const { getWeekLabel, isPostseason } = require('../utils/weekLabels');
 
 const FOOTER_TEXT = 'Postseason codes: 13=CCG, 14=Bowls, 15=QF, 16=SF, 18=Natty';
 
@@ -99,7 +99,9 @@ module.exports = {
         ? `**${awayTeam} ${awayPts}**`
         : `${awayTeam} ${awayPts}`;
 
-      return `${awayDisplay} @ ${homeDisplay}`;
+      return isPostseason(week)
+        ? `${awayDisplay} vs ${homeDisplay}`
+        : `${awayDisplay} @ ${homeDisplay}`;
     });
 
     const chunkSize = 20;
