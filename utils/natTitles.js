@@ -59,10 +59,6 @@ const NAT_TITLE_ENTRIES = [
   { year: '2059', aliases: ['legend', '@legend'] },
 ];
 
-// Coach names with disputed/asterisked national titles. Used by
-// /coachstats and /championships display logic.
-const NAT_TITLE_ASTERISK = new Set(['legend', 'LEGEND']);
-
 // Return the years a given coach won the national title (alias-matched).
 // Uses fuzzy substring matching once the alias is at least 4 chars long.
 function getNatTitleYears(coachName) {
@@ -84,6 +80,5 @@ function getNatTitleYears(coachName) {
 
 module.exports = {
   NAT_TITLE_ENTRIES,
-  NAT_TITLE_ASTERISK,
   getNatTitleYears,
 };

@@ -10,7 +10,7 @@ const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
-const { NAT_TITLE_ASTERISK, getNatTitleYears } = require('../utils/natTitles');
+const { getNatTitleYears } = require('../utils/natTitles');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -319,7 +319,6 @@ module.exports = {
     const embeds = found.slice(0, 3).map(c => {
       const leagueTeam = findTeamByName(leagueData, c.team);
       const logo       = leagueTeam ? getTeamLogoUrl(leagueTeam) : null;
-      const hasAsterisk = NAT_TITLE_ASTERISK.has(c.coach);
       const natYears    = getNatTitleYears(c.coach);
       const natSet      = new Set(natYears);
 
@@ -330,7 +329,7 @@ module.exports = {
 
       // National titles display
       const natDisplay = c.natTitles > 0
-        ? `**${c.natTitles}${hasAsterisk ? '*' : ''}**${natYears.length ? ` *(${natYears.join(', ')})*` : ''}`
+        ? `**${c.natTitles}**${natYears.length ? ` *(${natYears.join(', ')})*` : ''}`
         : '**0**';
 
       // Recent seasons — last 8 from history, trophy on nat title years
@@ -413,7 +412,7 @@ module.exports = {
         .setColor(0x2b4b8c)
         .setDescription(`**${c.team}**  •  ${c.years} season${c.years !== 1 ? 's' : ''} coached`)
         .addFields(fields)
-        .setFooter({ text: hasAsterisk ? '* Disputed title — see league records' : 'Active coaches only • NZCFL Coach Sheet' })
+        .setFooter({ text: 'Active coaches only • NZCFL Coach Sheet' })
         .setTimestamp();
 
       if (logo) embed.setThumbnail(logo);

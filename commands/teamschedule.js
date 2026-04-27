@@ -5,6 +5,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getTeamSchedule } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
+const { getWeekLabel } = require('../utils/weekLabels');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -51,11 +52,8 @@ module.exports = {
       return interaction.editReply(`No games found for **${result.team.abbrev}**.`);
     }
 
-    // Week 12 = Rivalry Week (CFB tradition — every team plays its rival)
-    const RIVALRY_WEEK = 12;
     const lines = result.games.map((g) => {
-      const rivalry = g.week === RIVALRY_WEEK ? ' 🔥 *Rivalry Week*' : '';
-      return `**Week ${g.week ?? '?'}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})${rivalry}`;
+      return `**${getWeekLabel(g.week)}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})`;
     });
 
     const chunkSize = 20;

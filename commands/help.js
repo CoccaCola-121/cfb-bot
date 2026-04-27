@@ -36,7 +36,7 @@ module.exports = {
             '`/teamschedule <team>` — Full schedule and results',
             '`/playerleaders <stat>` — Top 10 players in any stat category',
             '`/playerpage <player>` — Full player profile, ratings, and stats',
-            '`/scores [week]` — Game scores (latest week or specify)',
+            '`/scores [week]` — Game scores, latest week or specify',
             '`/boxscore <team> [week]` — Single-game box score with stat leaders',
             '`/compareteams <team1> <team2>` — Side-by-side team comparison',
             '`/injuries <team>` — Current injuries and redshirts',
@@ -51,15 +51,15 @@ module.exports = {
             '`/coachstats <name>` — Coach resume with career record, titles, history',
             '`/coachleaderboard [sort]` — Top coaches by formula, wins, win%, conf titles, or rings',
             '`/openpositions [view] [conference]` — Ranks open coaching jobs by attractiveness',
-            '`/dynastytracker [min] [coach]` — 5+ year tenures at one program (longest first)',
+            '`/dynastytracker [min] [coach]` — Active coaches, top 10 5+ year tenures at one program',
           ].join('\n'),
         },
         {
           name: '📜 History & Lore',
           value: [
-            '`/championships [view] [coach]` — National-title roll call or conference-title leaders',
-            '`/teamhistory <team>` — Coaching eras, championship years, and current Rivalry Week opponent',
-            '`/trashtalk <team>` — Generate a (playful) jab at a rival, fueled by real stats',
+            '`/championships [view] [year] [coach]` — National champs, conference champs, or division champs by view/year/coach',
+            '`/teamhistory <team>` — Coaching eras and championship years',
+            '`/trashtalk <team>` — Generate a playful jab at a rival, fueled by real stats',
           ].join('\n'),
         },
         {

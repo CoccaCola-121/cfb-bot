@@ -20,7 +20,6 @@ const {
   safeNumber,
 } = require('../utils/data');
 const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
-const { NAT_TITLE_ASTERISK } = require('../utils/natTitles');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -284,8 +283,7 @@ module.exports = {
         ? `${c.record.record} (${c.record.pct.toFixed(3)})`
         : '—';
 
-      const asterisk = NAT_TITLE_ASTERISK.has(c.coach) ? '*' : '';
-      const natStr   = `${c.natTitles}${asterisk}`;
+      const natStr   = String(c.natTitles);
       const confStr  = String(c.confTitles);
 
       return (
