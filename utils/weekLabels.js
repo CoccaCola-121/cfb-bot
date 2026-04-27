@@ -11,6 +11,10 @@ function isPostseason(week) {
 function getWeekLabel(week) {
   const w = Number(week);
 
+  if (!Number.isFinite(w)) {
+    return 'Week ?';
+  }
+
   if (w >= 1 && w <= REG_SEASON_WEEKS) {
     return `Week ${w}`;
   }
