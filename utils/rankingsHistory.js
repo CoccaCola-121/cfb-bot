@@ -17,13 +17,6 @@ const HISTORICAL_GID = process.env.RANKINGS_HISTORY_HISTORICAL_GID || '';
 const RANK_ROW_START = 1;     // skip the single header row
 const RANK_ROW_END_HARD = 28; // top 25 lives in rows 1..27
 
-function isRankingColumn(column) {
-  if (!column) return false;
-  const header = String(column.rawHeader || '').trim().toLowerCase();
-  if (!header || header === 'timeline') return false;
-  return column.weekKind != null || column.yearExplicit != null || column.year != null;
-}
-
 function parseDisplayedRank(row, fallback) {
   if (!Array.isArray(row)) return fallback;
 
@@ -188,7 +181,6 @@ function eligibleColumnsForTeam(rows, team, columnIndex) {
   const eligible = [];
 
   for (const c of columnIndex) {
-    if (!isRankingColumn(c)) continue;
     for (let r = RANK_ROW_START; r < dataEnd; r++) {
       const cell = rows[r]?.[c.col];
       if (cell && teamMatchesCell(cell, team)) {
@@ -208,23 +200,22 @@ function findLastRankedColumn(rows, team, columnIndex) {
   return eligible[eligible.length - 1];
 }
 
-// Latest column overall (no team filter): the rightmost column by sort key
-// that has at least one non-empty cell in the top-25 region.
+// Latest column overall (no team filter): the furthest-right column that has
+// at least one non-empty cell in the top-25 region.
 function findLatestColumn(rows, columnIndex) {
   if (!rows || !columnIndex?.length) return null;
   const dataEnd = Math.min(rows.length, RANK_ROW_END_HARD);
 
-  const populated = columnIndex.filter((c) => {
-    if (!isRankingColumn(c)) return false;
+  for (let i = columnIndex.length - 1; i >= 1; i--) {
+    const column = columnIndex[i];
     for (let r = RANK_ROW_START; r < dataEnd; r++) {
-      if (String(rows[r]?.[c.col] || '').trim()) return true;
+      if (String(rows[r]?.[column.col] || '').trim()) {
+        return column;
+      }
     }
-    return false;
-  });
-  if (!populated.length) return null;
+  }
 
-  populated.sort(compareCols);
-  return populated[populated.length - 1];
+  return null;
 }
 
 // Pull ranked entries from a column. Rank is taken from the first 1..25 value

@@ -60,7 +60,13 @@ module.exports = {
     }
 
     const requestedWeek = interaction.options.getInteger('week');
-    const week = requestedWeek ?? availableWeeks[0];
+    const latestWeek = availableWeeks[0];
+
+    let week = requestedWeek ?? latestWeek;
+    if (latestWeek === 17 && week === 17 && availableWeeks.includes(16)) {
+      week = 16;
+    }
+
     const games = weekBuckets.get(week);
 
     if (!games || games.length === 0) {
