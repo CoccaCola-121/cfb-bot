@@ -599,37 +599,44 @@
 
   // ── Games helpers ────────────────────────────────────────────
 
+  function shouldIgnoreGame(game) {
+    const day = Number(game?.day);
+
+    // Football GM exports can include an all-star game on day 17.
+    // We never want that mixed into NZCFL week-based reporting.
+    if (day === 17 && !Boolean(game?.playoffs)) {
+      return true;
+    }
+
+    return false;
+  }
+
   function getGamesForCurrentSeason(leagueData) {
     const currentSeason = getCurrentSeason(leagueData);
     const games = Array.isArray(leagueData?.games) ? leagueData.games : [];
-    if (currentSeason === null) return games;
-    return games.filter((g) => g.season === currentSeason);
+    const filtered = currentSeason === null
+      ? games
+      : games.filter((g) => g.season === currentSeason);
+
+    return filtered.filter((g) => !shouldIgnoreGame(g));
   }
 
   function buildGameDayWeekMap(games) {
-    const regularDays = new Set();
-    const postseasonDays = new Set();
+    const uniqueDays = new Set();
 
     for (const game of games || []) {
       const day = Number(game?.day);
       if (!Number.isFinite(day)) continue;
-
-      const isPostseason = Boolean(game?.playoffs) || day > REG_SEASON_WEEKS;
-      if (isPostseason) postseasonDays.add(day);
-      else regularDays.add(day);
+      uniqueDays.add(day);
     }
 
     const map = new Map();
 
-    for (const day of [...regularDays].sort((a, b) => a - b)) {
-      map.set(day, day);
+    for (const day of [...uniqueDays].sort((a, b) => a - b)) {
+      let normalizedWeek = day;
+      if (day > 17) normalizedWeek = day - 1;
+      map.set(day, normalizedWeek);
     }
-
-    [...postseasonDays]
-      .sort((a, b) => a - b)
-      .forEach((day, index) => {
-        map.set(day, REG_SEASON_WEEKS + 1 + index);
-      });
 
     return map;
   }
@@ -656,6 +663,7 @@
   function getPlayoffRecordForTeam(leagueData, teamTid, season) {
     const numericSeason = Number(season);
     const seasonGames = (leagueData?.games || []).filter((game) => {
+      if (shouldIgnoreGame(game)) return false;
       if (!Array.isArray(game?.teams) || game.teams.length !== 2) return false;
       if (!game.teams.some((team) => Number(team?.tid) === Number(teamTid))) return false;
       if (!game.teams.every((team) => typeof team?.pts === 'number')) return false;
@@ -1402,6 +1410,7 @@
     getLatestTeamSeason,
     getLatestTeamStats,
     getLatestPlayerStats,
+    shouldIgnoreGame,
     getGamesForCurrentSeason,
     buildGameDayWeekMap,
     getCurrentSeasonWeekMap,
