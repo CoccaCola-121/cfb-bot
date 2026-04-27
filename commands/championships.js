@@ -22,6 +22,7 @@ const SHEET_ID =
 
 const RESUME_TAB = process.env.NZCFL_RESUME_SHEET_TAB || 'Resume';
 
+const MAX_NAT_TITLES_DISPLAY = 15;
 const MAX_FIELDS = 25;
 const MAX_EMBED_CHARS = 5800;
 
@@ -90,92 +91,150 @@ function teamOnlyLine(row) {
 }
 
 function getConferenceAbbrev(leagueData, cid) {
+  const rawName = String(getConferenceName(leagueData, cid) || '').trim();
+  const norm = normalize(rawName);
+
+  if (norm.includes('big ten')) return 'B1G';
+  if (norm.includes('big 12') || norm.includes('big twelve')) return 'B12';
+  if (norm.includes('conference usa') || norm.includes('c usa') || norm.includes('cu usa')) return 'C-USA';
+  if (norm.includes('pacific coast') || norm.includes('pac 12') || norm.includes('pac twelve')) return 'P12';
+  if (norm.includes('southeastern') || norm === 'sec' || norm.includes('south eastern')) return 'SEC';
+  if (norm.includes('mountain west')) return 'MW';
+  if (norm.includes('american athletic')) return 'AAC';
+  if (norm.includes('atlantic coast')) return 'ACC';
+  if (norm.includes('mid american')) return 'MAC';
+  if (norm.includes('sun belt')) return 'SBC';
+
   const conf = (leagueData.confs || leagueData.conferences || []).find((c) => c.cid === cid);
-  if (!conf) return String(getConferenceName(leagueData, cid) || '').split(/\s+/).map((w) => w[0]).join('').toUpperCase();
+  const rawAbbrev = String(conf?.abbrev || conf?.abbr || conf?.shortName || '').trim();
 
-  return (
-    conf.abbrev ||
-    conf.abbr ||
-    conf.shortName ||
-    String(conf.name || getConferenceName(leagueData, cid) || '')
-      .split(/\s+/)
-      .map((w) => w[0])
-      .join('')
-      .toUpperCase()
-  );
-}
-
-function findHeader(rows) {
-  for (let i = 0; i < Math.min(rows.length, 8); i++) {
-    const joined = rows[i].map((c) => String(c || '').toLowerCase()).join('|');
-    if (joined.includes('coach') && (joined.includes('team') || joined.includes('school'))) return i;
-  }
-  return 0;
-}
-
-function parseResumeAssignments(rows) {
-  const map = new Map();
-  if (!Array.isArray(rows) || rows.length < 2) return map;
-
-  const hi = findHeader(rows);
-  const header = rows[hi].map((h) => String(h || '').trim());
-  const lower = header.map((h) => h.toLowerCase());
-
-  const coachCol = lower.findIndex((h) => h.includes('coach'));
-  const teamCol = lower.findIndex((h) => h === 'team' || h === 'school' || h.includes('team'));
-  const yearCol = lower.findIndex((h) => h === 'year' || h === 'season');
-
-  if (coachCol === -1 || teamCol === -1) return map;
-
-  const add = (year, team, coach) => {
-    const y = Number(year);
-    if (!Number.isFinite(y) || !team || !coach) return;
-    map.set(`${y}|${normalize(team)}`, String(coach).trim());
+  const overrides = {
+    BTC: 'B1G',
+    'CU USA': 'C-USA',
+    CUSA: 'C-USA',
+    PCC: 'P12',
+    SC: 'SEC',
+    MWC: 'MW',
   };
 
-  if (yearCol !== -1) {
-    for (const r of rows.slice(hi + 1)) add(r[yearCol], r[teamCol], r[coachCol]);
-    return map;
-  }
+  if (overrides[rawAbbrev]) return overrides[rawAbbrev];
 
-  const yearCols = header
-    .map((h, i) => ({ h, i, y: Number(String(h).match(/\b(20\d{2})\b/)?.[1]) }))
-    .filter((x) => Number.isFinite(x.y));
+  return rawAbbrev || rawName
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+}
 
-  for (const r of rows.slice(hi + 1)) {
-    const coach = String(r[coachCol] || '').trim();
-    const baseTeam = String(r[teamCol] || '').trim();
+function parseResumeRows(rows) {
+  let hi = -1;
 
-    for (const yc of yearCols) {
-      const cell = String(r[yc.i] || '').trim();
-      if (!cell) continue;
-
-      const team = cell.toLowerCase() === 'x' || cell.toLowerCase() === 'yes'
-        ? baseTeam
-        : cell;
-
-      add(yc.y, team, coach);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i].map((c) => String(c || '').toLowerCase().trim());
+    if (r.includes('coach') && r.includes('total')) {
+      hi = i;
+      break;
     }
   }
 
-  return map;
+  if (hi === -1) return [];
+
+  const header = rows[hi].map((c) => String(c || '').trim());
+  const coachCol = header.findIndex((h) => h.toLowerCase() === 'coach');
+  if (coachCol === -1) return [];
+
+  const yearIdxs = header
+    .map((h, i) => (/^\d{4}$/.test(h) ? i : -1))
+    .filter((i) => i >= 0);
+
+  const seen = new Set();
+  let splitAt = -1;
+
+  for (let i = 0; i < yearIdxs.length; i++) {
+    const y = header[yearIdxs[i]];
+    if (seen.has(y)) {
+      splitAt = i;
+      break;
+    }
+    seen.add(y);
+  }
+
+  const recordYearCols = splitAt >= 0 ? yearIdxs.slice(0, splitAt) : yearIdxs;
+  const teamYearCols = splitAt >= 0 ? yearIdxs.slice(splitAt) : [];
+
+  const out = [];
+
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r = rows[i];
+    const coach = String(r[coachCol] || '').trim();
+    if (!coach) continue;
+
+    const recordByYear = new Map();
+    for (const col of recordYearCols) {
+      const y = header[col];
+      const v = String(r[col] || '').trim();
+      if (v && /^\d{1,2}-\d{1,2}$/.test(v)) recordByYear.set(y, v);
+    }
+
+    const teamByYear = new Map();
+    for (const col of teamYearCols) {
+      const y = header[col];
+      const v = String(r[col] || '').trim();
+      if (v) teamByYear.set(y, v);
+    }
+
+    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])];
+
+    for (const y of allYears) {
+      const rec = recordByYear.get(y);
+      const team = teamByYear.get(y);
+      const m = rec ? rec.match(/^(\d+)-(\d+)$/) : null;
+
+      out.push({
+        year: Number(y),
+        coach,
+        team: team || null,
+        wins: m ? +m[1] : 0,
+        losses: m ? +m[2] : 0,
+      });
+    }
+  }
+
+  return out;
 }
 
-async function getCoachMap() {
+async function getResumeRows() {
   try {
     const rows = await fetchSheetCsv(SHEET_ID, RESUME_TAB);
-    return parseResumeAssignments(rows);
+    return parseResumeRows(rows);
   } catch {
-    return new Map();
+    return [];
   }
 }
 
-function coachFor(coachMap, year, teamName) {
-  return coachMap.get(`${year}|${normalize(teamName)}`) || 'Unknown Coach';
+function coachForYearTeam(resumeRows, year, teamName) {
+  const targetTeam = normalize(teamName);
+
+  const exact = resumeRows.find((r) =>
+    Number(r.year) === Number(year) &&
+    r.team &&
+    normalize(r.team) === targetTeam
+  );
+
+  if (exact) return exact.coach;
+
+  const fuzzy = resumeRows.find((r) => {
+    if (Number(r.year) !== Number(year) || !r.team) return false;
+
+    const rt = normalize(r.team);
+    return rt === targetTeam || rt.includes(targetTeam) || targetTeam.includes(rt);
+  });
+
+  return fuzzy?.coach || 'Unknown Coach';
 }
 
-function buildNatChamps(leagueData, coachMap, coachFilter = null) {
-  const rows = teamSeasonRows(leagueData);
+function buildNatChamps(leagueData, resumeRows, currentSeason, coachFilter = null) {
+  const rows = teamSeasonRows(leagueData).filter((r) => r.year < currentSeason);
   const byYear = new Map();
 
   for (const r of rows) {
@@ -193,7 +252,7 @@ function buildNatChamps(leagueData, coachMap, coachFilter = null) {
       .filter((t) => t.playoffRoundsWon === maxRounds)
       .sort((a, b) => compareWinner(a, b, 'conference'))[0];
 
-    const coach = coachFor(coachMap, year, champ.teamName);
+    const coach = coachForYearTeam(resumeRows, year, champ.teamName);
 
     champs.push({
       year,
@@ -266,13 +325,13 @@ function buildGroupWinners(leagueData, scope, targetYear = null) {
   });
 }
 
-function makeDescription(lines) {
+function makeDescription(lines, limit = 80) {
   const kept = [];
   let chars = 0;
 
   for (const line of lines) {
     const next = chars + line.length + 1;
-    if (kept.length >= 80 || next > MAX_EMBED_CHARS) break;
+    if (kept.length >= limit || next > MAX_EMBED_CHARS) break;
     kept.push(line);
     chars = next;
   }
@@ -312,10 +371,10 @@ async function autocomplete(interaction) {
   const focused = interaction.options.getFocused(true);
   if (focused.name !== 'coach') return interaction.respond([]);
 
-  const coachMap = await getCoachMap();
+  const resumeRows = await getResumeRows();
   const q = normalize(focused.value);
 
-  const coaches = [...new Set([...coachMap.values()].filter((c) => c && c !== 'Unknown Coach'))]
+  const coaches = [...new Set(resumeRows.map((r) => r.coach).filter(Boolean))]
     .filter((c) => !q || normalize(c).includes(q))
     .sort((a, b) => a.localeCompare(b))
     .slice(0, 25)
@@ -364,7 +423,7 @@ module.exports = {
     const view = interaction.options.getString('view');
     const year = interaction.options.getInteger('year');
     const coach = interaction.options.getString('coach');
-    const coachMap = await getCoachMap();
+    const resumeRows = await getResumeRows();
 
     const currentSeason = Number(getCurrentSeason(leagueData));
     const targetYear = Number.isFinite(year) ? year : null;
@@ -399,7 +458,7 @@ module.exports = {
     }
 
     if (!view || view === 'natchamps' || coach) {
-      const champs = buildNatChamps(leagueData, coachMap, coach);
+      const champs = buildNatChamps(leagueData, resumeRows, currentSeason, coach);
 
       if (!champs.length) {
         return interaction.editReply(
@@ -409,11 +468,19 @@ module.exports = {
         );
       }
 
+      const display = champs.slice(0, MAX_NAT_TITLES_DISPLAY);
+      const hidden = champs.length - display.length;
+
       const embed = new EmbedBuilder()
         .setTitle(coach ? `National Champions — ${coach}` : 'National Champions')
         .setColor(0xf1c40f)
-        .setDescription(makeDescription(champs.map((c) => c.line)))
-        .setFooter({ text: `${champs.length} title season${champs.length === 1 ? '' : 's'}` })
+        .setDescription(display.map((c) => c.line).join('\n'))
+        .setFooter({
+          text:
+            hidden > 0
+              ? `Showing ${display.length} of ${champs.length} completed title seasons • Current season ${currentSeason} excluded`
+              : `${champs.length} completed title season${champs.length === 1 ? '' : 's'} • Current season ${currentSeason} excluded`,
+        })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
