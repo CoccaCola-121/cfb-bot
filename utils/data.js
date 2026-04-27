@@ -607,13 +607,31 @@
   }
 
   function buildGameDayWeekMap(games) {
-    const uniqueDays = [...new Set(
-      (games || [])
-        .map((game) => Number(game?.day))
-        .filter((day) => Number.isFinite(day))
-    )].sort((a, b) => a - b);
+    const regularDays = new Set();
+    const postseasonDays = new Set();
 
-    return new Map(uniqueDays.map((day, index) => [day, index + 1]));
+    for (const game of games || []) {
+      const day = Number(game?.day);
+      if (!Number.isFinite(day)) continue;
+
+      const isPostseason = Boolean(game?.playoffs) || day > REG_SEASON_WEEKS;
+      if (isPostseason) postseasonDays.add(day);
+      else regularDays.add(day);
+    }
+
+    const map = new Map();
+
+    for (const day of [...regularDays].sort((a, b) => a - b)) {
+      map.set(day, day);
+    }
+
+    [...postseasonDays]
+      .sort((a, b) => a - b)
+      .forEach((day, index) => {
+        map.set(day, REG_SEASON_WEEKS + 1 + index);
+      });
+
+    return map;
   }
 
   function getCurrentSeasonWeekMap(leagueData) {
