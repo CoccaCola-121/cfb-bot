@@ -8,9 +8,11 @@ const {
   getGamesForCurrentSeason,
   getCurrentSeasonWeekMap,
   getGameWeek,
-  getTeamNameByTid,
+  getGameTeamDisplayName,
 } = require('../utils/data');
 const { getWeekLabel } = require('../utils/weekLabels');
+
+const FOOTER_TEXT = 'Postseason codes: 13=CCG, 14=Bowls, 15=QF, 16=SF, 18=Natty';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -69,8 +71,8 @@ module.exports = {
         return 'Unknown matchup';
       }
 
-      const homeTeam = getTeamNameByTid(leagueData, team0.tid);
-      const awayTeam = getTeamNameByTid(leagueData, team1.tid);
+      const homeTeam = getGameTeamDisplayName(leagueData, team0);
+      const awayTeam = getGameTeamDisplayName(leagueData, team1);
       const homePts = team0.pts ?? '?';
       const awayPts = team1.pts ?? '?';
 
@@ -105,7 +107,7 @@ module.exports = {
         )
         .setColor(0x8b1a1a)
         .setDescription(chunk.join('\n'))
-        .setFooter({ text: `Available weeks: ${availableWeeks.slice(0, 8).join(', ')}` })
+        .setFooter({ text: FOOTER_TEXT })
     );
 
     return interaction.editReply({ embeds: embeds.slice(0, 10) });

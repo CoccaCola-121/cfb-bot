@@ -410,6 +410,18 @@
     return getTeamName(getTeamByTid(leagueData, tid));
   }
 
+  function getGameTeamDisplayName(leagueData, gameTeam) {
+    const fromTid = getTeamByTid(leagueData, gameTeam?.tid);
+    if (fromTid) return getTeamName(fromTid);
+
+    const region = String(gameTeam?.region || gameTeam?.city || '').trim();
+    const name = String(gameTeam?.name || gameTeam?.nickname || '').trim();
+    const abbrev = String(gameTeam?.abbrev || '').trim();
+    const combined = `${region} ${name}`.trim();
+
+    return combined || name || region || abbrev || 'Unknown Team';
+  }
+
   function getTeamName(team) {
     if (!team) return 'Unknown Team';
     return `${team.region || ''} ${team.name || ''}`.trim();
@@ -603,8 +615,8 @@
     const day = Number(game?.day);
 
     // Football GM exports can include an all-star game on day 17.
-    // We never want that mixed into NZCFL week-based reporting.
-    if (day === 17 && !Boolean(game?.playoffs)) {
+    // In this league, day 17 is never a real NZCFL week we care about.
+    if (day === 17) {
       return true;
     }
 
@@ -1400,6 +1412,7 @@
     getTeamMap,
     getTeamByTid,
     getTeamNameByTid,
+    getGameTeamDisplayName,
     getTeamName,
     cleanDivisionName,
     getConferenceName,
