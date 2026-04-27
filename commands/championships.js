@@ -92,34 +92,36 @@ function teamOnlyLine(row) {
 
 function getConferenceAbbrev(leagueData, cid) {
   const rawName = String(getConferenceName(leagueData, cid) || '').trim();
-  const norm = normalize(rawName);
+  const norm = normalize(rawName).replace(/[^a-z0-9]/g, '');
 
-  if (norm.includes('big ten')) return 'B1G';
-  if (norm.includes('big 12') || norm.includes('big twelve')) return 'B12';
-  if (norm.includes('conference usa') || norm.includes('c usa') || norm.includes('cu usa')) return 'C-USA';
-  if (norm.includes('pacific coast') || norm.includes('pac 12') || norm.includes('pac twelve')) return 'P12';
-  if (norm.includes('southeastern') || norm === 'sec' || norm.includes('south eastern')) return 'SEC';
-  if (norm.includes('mountain west')) return 'MW';
-  if (norm.includes('american athletic')) return 'AAC';
-  if (norm.includes('atlantic coast')) return 'ACC';
-  if (norm.includes('mid american')) return 'MAC';
-  if (norm.includes('sun belt')) return 'SBC';
+  // --- HARD MATCHES (robust against spacing/dashes/etc) ---
+  if (norm.includes('bigten')) return 'B1G';
+  if (norm.includes('big12') || norm.includes('bigtwelve')) return 'B12';
 
+  if (norm.includes('conferenceusa') || norm.includes('cusa') || norm.includes('cuusa')) return 'C-USA';
+
+  if (norm.includes('pac12') || norm.includes('pactwelve') || norm.includes('pacificcoast') || norm.includes('pcc')) return 'P12';
+
+  if (norm.includes('southeastern') || norm === 'sec') return 'SEC';
+
+  if (norm.includes('mountainwest') || norm.includes('mwc')) return 'MW';
+
+  if (norm.includes('americanathletic') || norm.includes('aac')) return 'AAC';
+
+  if (norm.includes('atlanticcoast') || norm.includes('acc')) return 'ACC';
+
+  if (norm.includes('midamerican') || norm === 'mac' || norm.includes('mc')) return 'MAC';
+
+  if (norm.includes('sunbelt') || norm.includes('sbc')) return 'SBC';
+
+  // --- fallback to raw abbrev if exists ---
   const conf = (leagueData.confs || leagueData.conferences || []).find((c) => c.cid === cid);
   const rawAbbrev = String(conf?.abbrev || conf?.abbr || conf?.shortName || '').trim();
 
-  const overrides = {
-    BTC: 'B1G',
-    'CU USA': 'C-USA',
-    CUSA: 'C-USA',
-    PCC: 'P12',
-    SC: 'SEC',
-    MWC: 'MW',
-  };
+  if (rawAbbrev) return rawAbbrev;
 
-  if (overrides[rawAbbrev]) return overrides[rawAbbrev];
-
-  return rawAbbrev || rawName
+  // --- final fallback ---
+  return rawName
     .split(/\s+/)
     .map((w) => w[0])
     .join('')
