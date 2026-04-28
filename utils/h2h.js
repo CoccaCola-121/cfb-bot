@@ -167,6 +167,53 @@ function parseWeekCell(raw) {
   return { week: null, weekLabel: v };
 }
 
+function findHeaderIndex(header, candidates) {
+  if (!Array.isArray(header) || !header.length) return -1;
+
+  const normalized = header.map((cell) => normKey(cell));
+  for (const candidate of candidates) {
+    const idx = normalized.indexOf(normKey(candidate));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+function parseCsvGameRow(row, header = []) {
+  const yearIdx = findHeaderIndex(header, ['Year']);
+  const weekIdx = findHeaderIndex(header, ['Week']);
+  const leftTeamIdx = findHeaderIndex(header, ['Left Team', 'Team 1']);
+  const rightTeamIdx = findHeaderIndex(header, ['Right Team', 'Team 2']);
+  const leftScoreIdx = findHeaderIndex(header, ['Left Score', 'W']);
+  const rightScoreIdx = findHeaderIndex(header, ['Right Score', 'L']);
+
+  if (
+    yearIdx !== -1 &&
+    weekIdx !== -1 &&
+    leftTeamIdx !== -1 &&
+    rightTeamIdx !== -1 &&
+    leftScoreIdx !== -1 &&
+    rightScoreIdx !== -1
+  ) {
+    return {
+      year: Number(row[yearIdx]),
+      rawWeek: row[weekIdx],
+      teamA: String(row[leftTeamIdx] || '').trim(),
+      teamB: String(row[rightTeamIdx] || '').trim(),
+      scoreA: Number(row[leftScoreIdx]),
+      scoreB: Number(row[rightScoreIdx]),
+    };
+  }
+
+  return {
+    year: Number(row[0]),
+    rawWeek: row[1],
+    teamA: String(row[4] || '').trim(),
+    teamB: String(row[5] || '').trim(),
+    scoreA: Number(row[6]),
+    scoreB: Number(row[7]),
+  };
+}
+
 // ============================================================
 // Sources
 // ============================================================
@@ -176,47 +223,55 @@ async function loadCsvGames() {
     console.warn('[h2h] H2H_SHEET_ID not configured; skipping CSV load');
     return [];
   }
-  const tabId = STATS_GID || STATS_TAB;
-  const byGid = !!STATS_GID;
-  let rows;
-  try {
-    rows = await fetchSheetCsvCached(SHEET_ID, tabId, byGid);
-  } catch (err) {
-    console.warn(
-      `[h2h] CSV fetch failed (sheet=${SHEET_ID}, ${byGid ? 'gid' : 'tab'}=${tabId}): ${err.message}`,
-    );
-    return [];
+  const attempts = [];
+  if (STATS_GID) attempts.push({ tabId: STATS_GID, byGid: true });
+  if (STATS_TAB) attempts.push({ tabId: STATS_TAB, byGid: false });
+
+  let bestGames = [];
+
+  for (const { tabId, byGid } of attempts) {
+    let rows;
+    try {
+      rows = await fetchSheetCsvCached(SHEET_ID, tabId, byGid);
+    } catch (err) {
+      console.warn(
+        `[h2h] CSV fetch failed (sheet=${SHEET_ID}, ${byGid ? 'gid' : 'tab'}=${tabId}): ${err.message}`,
+      );
+      continue;
+    }
+    if (!Array.isArray(rows) || rows.length < 2) continue;
+
+    const header = rows[0] || [];
+    const games = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const parsed = parseCsvGameRow(rows[i] || [], header);
+      const { week, weekLabel } = parseWeekCell(parsed.rawWeek);
+
+      if (!Number.isFinite(parsed.year) || !parsed.teamA || !parsed.teamB) continue;
+      if (!Number.isFinite(week)) continue;
+      if (parsed.teamA === '-' || parsed.teamB === '-') continue;
+
+      games.push(
+        makeGame({
+          year: parsed.year,
+          week,
+          weekLabel,
+          teamA: parsed.teamA,
+          teamB: parsed.teamB,
+          scoreA: parsed.scoreA,
+          scoreB: parsed.scoreB,
+          source: 'csv',
+        })
+      );
+    }
+
+    if (games.length > bestGames.length) {
+      bestGames = games;
+    }
   }
-  if (!Array.isArray(rows) || rows.length < 2) return [];
 
-  const games = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i] || [];
-    const year = Number(r[0]);
-    const { week, weekLabel } = parseWeekCell(r[1]);
-    const a = String(r[4] || '').trim();
-    const b = String(r[5] || '').trim();
-    const sa = Number(r[6]);
-    const sb = Number(r[7]);
-
-    if (!Number.isFinite(year) || !a || !b) continue;
-    if (!Number.isFinite(week)) continue;
-
-    games.push(
-      makeGame({
-        year,
-        week,
-        weekLabel,
-        teamA: a,
-        teamB: b,
-        scoreA: sa,
-        scoreB: sb,
-        source: 'csv',
-      })
-    );
-  }
-
-  return games;
+  return bestGames;
 }
 
 function loadJsonGames() {
