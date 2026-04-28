@@ -9,6 +9,7 @@ const {
   getLatestTeamSeason,
   getTeamName,
   safeNumber,
+  getLiveTeamRecord,
 } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
@@ -150,32 +151,6 @@ function findTeamBySheetName(leagueData, teamName) {
   });
 }
 
-function getPlayoffRecordForTeam(leagueData, teamTid, season) {
-  const games = (leagueData.games || []).filter((g) => {
-    if (!Array.isArray(g.teams) || g.teams.length !== 2) return false;
-    if (!g.teams.some((t) => t.tid === teamTid)) return false;
-    if (!g.teams.every((t) => typeof t.pts === 'number')) return false;
-
-    if (g.season !== undefined && Number(g.season) !== Number(season)) return false;
-
-    return Boolean(g.playoffs) || Number(g.day) > REG_SEASON_WEEKS;
-  });
-
-  let wins = 0;
-  let losses = 0;
-
-  for (const g of games) {
-    const teamSide = g.teams.find((t) => t.tid === teamTid);
-    const oppSide = g.teams.find((t) => t.tid !== teamTid);
-    if (!teamSide || !oppSide) continue;
-
-    if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins++;
-    else losses++;
-  }
-
-  return { wins, losses };
-}
-
 function patchCurrentSeasonRows(allRows, leagueData, currentSeason) {
   return allRows.map((row) => {
     if (Number(row.year) !== Number(currentSeason) || !row.team) return row;
@@ -186,12 +161,15 @@ function patchCurrentSeasonRows(allRows, leagueData, currentSeason) {
     const season = getLatestTeamSeason(team, currentSeason);
     if (!season) return row;
 
-    const playoff = getPlayoffRecordForTeam(leagueData, team.tid, currentSeason);
+    // Single-source live record: counts each played game exactly once
+    // so we never double-count bowl/playoff games that FGM already
+    // includes in season.won/lost.
+    const live = getLiveTeamRecord(leagueData, team, currentSeason);
 
     return {
       ...row,
-      wins: safeNumber(season.won) + playoff.wins,
-      losses: safeNumber(season.lost) + playoff.losses,
+      wins: live ? live.wins : safeNumber(season.won),
+      losses: live ? live.losses : safeNumber(season.lost),
     };
   });
 }

@@ -703,16 +703,51 @@
     return { wins, losses };
   }
 
+  // Counts every played game for a team in `season` directly from
+  // leagueData.games so each game contributes exactly once. This avoids
+  // double-counting bowl/playoff games that FGM already includes in
+  // season.won/lost when a separate getPlayoffRecordForTeam() is added
+  // on top.
   function getLiveTeamRecord(leagueData, team, season = getCurrentSeason(leagueData)) {
     if (!leagueData || !team) return null;
 
-    const teamSeason = getLatestTeamSeason(team, season);
-    if (!teamSeason) return null;
+    const numericSeason = Number(season);
+    let wins = 0;
+    let losses = 0;
+    let ties = 0;
+    let played = 0;
 
-    const playoffRecord = getPlayoffRecordForTeam(leagueData, team.tid, season);
-    const wins = safeNumber(teamSeason.won) + playoffRecord.wins;
-    const losses = safeNumber(teamSeason.lost) + playoffRecord.losses;
-    const ties = safeNumber(teamSeason.tied);
+    for (const game of leagueData.games || []) {
+      if (shouldIgnoreGame(game)) continue;
+      if (!Array.isArray(game.teams) || game.teams.length !== 2) continue;
+      if (!game.teams.some((t) => Number(t?.tid) === Number(team.tid))) continue;
+      if (!game.teams.every((t) => typeof t?.pts === 'number')) continue;
+      if (game.season !== undefined && Number(game.season) !== numericSeason) continue;
+
+      const us = game.teams.find((t) => Number(t.tid) === Number(team.tid));
+      const them = game.teams.find((t) => Number(t.tid) !== Number(team.tid));
+      if (!us || !them) continue;
+
+      played += 1;
+      const a = safeNumber(us.pts);
+      const b = safeNumber(them.pts);
+      if (a > b) wins += 1;
+      else if (a < b) losses += 1;
+      else ties += 1;
+    }
+
+    // Fallback: if no games are present in the export yet (preseason
+    // exports before any games have been played) fall back to the
+    // season counters so callers still get a sensible zero-record.
+    if (played === 0) {
+      const teamSeason = getLatestTeamSeason(team, season);
+      if (!teamSeason) return null;
+      return {
+        wins: safeNumber(teamSeason.won),
+        losses: safeNumber(teamSeason.lost),
+        ties: safeNumber(teamSeason.tied),
+      };
+    }
 
     return { wins, losses, ties };
   }

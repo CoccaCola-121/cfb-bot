@@ -14,6 +14,7 @@ const {
   getTeamLogoUrl,
   formatRecord,
   safeNumber,
+  getLiveTeamRecord,
 } = require('../utils/data');
 const {
   getScholarshipInfo,
@@ -55,32 +56,6 @@ function ordinal(n) {
     case 3: return `${num}rd`;
     default: return `${num}th`;
   }
-}
-
-function getPlayoffRecordForTeam(leagueData, teamTid, season) {
-  const games = (leagueData.games || []).filter((g) => {
-    if (!Array.isArray(g.teams) || g.teams.length !== 2) return false;
-    if (!g.teams.some((t) => t.tid === teamTid)) return false;
-    if (!g.teams.every((t) => typeof t.pts === 'number')) return false;
-
-    if (g.season !== undefined && Number(g.season) !== Number(season)) return false;
-
-    return Boolean(g.playoffs) || Number(g.day) > REG_SEASON_WEEKS;
-  });
-
-  let wins = 0;
-  let losses = 0;
-
-  for (const g of games) {
-    const teamSide = g.teams.find((t) => t.tid === teamTid);
-    const oppSide = g.teams.find((t) => t.tid !== teamTid);
-    if (!teamSide || !oppSide) continue;
-
-    if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins++;
-    else losses++;
-  }
-
-  return { wins, losses };
 }
 
 function addCompetitionRanks(items, key, ascending = false) {
@@ -440,12 +415,18 @@ module.exports = {
 
     let wins = Number(season.won ?? 0);
     let losses = Number(season.lost ?? 0);
-    const ties = Number(season.tied ?? 0);
+    let ties = Number(season.tied ?? 0);
 
     if (Number(season.season) === currentSeason) {
-      const playoffRecord = getPlayoffRecordForTeam(leagueData, team.tid, currentSeason);
-      wins += playoffRecord.wins;
-      losses += playoffRecord.losses;
+      // Use the centralized live record helper which counts each played
+      // game exactly once (regular + bowls + playoffs) so we don't
+      // double-count games that FGM already includes in season.won/lost.
+      const live = getLiveTeamRecord(leagueData, team, currentSeason);
+      if (live) {
+        wins = live.wins;
+        losses = live.losses;
+        ties = live.ties;
+      }
     }
 
     const gp = safeNumber(stats.gp, Number(season.won ?? 0) + Number(season.lost ?? 0) + ties);

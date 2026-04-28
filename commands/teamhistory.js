@@ -11,6 +11,7 @@ const {
   getTeamLogoUrl,
   getTeamName,
   safeNumber,
+  getLiveTeamRecord,
 } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
@@ -20,32 +21,6 @@ const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
-
-function getPlayoffRecordForTeam(leagueData, teamTid, season) {
-  const games = (leagueData.games || []).filter((g) => {
-    if (!Array.isArray(g.teams) || g.teams.length !== 2) return false;
-    if (!g.teams.some((t) => t.tid === teamTid)) return false;
-    if (!g.teams.every((t) => typeof t.pts === 'number')) return false;
-
-    if (g.season !== undefined && Number(g.season) !== Number(season)) return false;
-
-    return Boolean(g.playoffs) || Number(g.day) > REG_SEASON_WEEKS;
-  });
-
-  let wins = 0;
-  let losses = 0;
-
-  for (const g of games) {
-    const teamSide = g.teams.find((t) => t.tid === teamTid);
-    const oppSide = g.teams.find((t) => t.tid !== teamTid);
-    if (!teamSide || !oppSide) continue;
-
-    if (safeNumber(teamSide.pts) > safeNumber(oppSide.pts)) wins++;
-    else losses++;
-  }
-
-  return { wins, losses };
-}
 
 function parseResumeRows(rows) {
   let hi = -1;
@@ -180,10 +155,15 @@ function mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason) {
   const season = getLatestTeamSeason(team, currentSeason);
   if (!season) return teamRows;
 
-  const playoff = getPlayoffRecordForTeam(leagueData, team.tid, currentSeason);
-
-  const currentWins = safeNumber(season.won) + playoff.wins;
-  const currentLosses = safeNumber(season.lost) + playoff.losses;
+  // Single-source live record: counts each played game exactly once
+  // (regular + bowls + playoffs) so we never double-count games that
+  // FGM already includes in season.won/lost.
+  const live = getLiveTeamRecord(leagueData, team, currentSeason) || {
+    wins: safeNumber(season.won),
+    losses: safeNumber(season.lost),
+  };
+  const currentWins = live.wins;
+  const currentLosses = live.losses;
 
   const idx = teamRows.findIndex((r) => Number(r.year) === Number(currentSeason));
 
