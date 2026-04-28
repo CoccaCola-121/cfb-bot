@@ -4,7 +4,18 @@ const { fetchSheetCsvCached } = require('./sheetCache');
 const { normalize } = require('./sheets');
 const overrides = require('./h2hOverrides');
 
-const SHEET_ID = process.env.NZCFL_RESUME_SHEET_ID;
+// Resume sheet — same defaults as the rest of the bot
+// (coachstats / coachleaderboard / dynastytracker / teamhistory / trashtalk
+// all hard-code these). Env vars allow overrides but are not required.
+const SHEET_ID =
+  process.env.NZCFL_RESUME_SHEET_ID ||
+  process.env.RESUME_SHEET_ID ||
+  '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
+const RESUME_GID =
+  process.env.NZCFL_RESUME_GID ||
+  process.env.RESUME_GID ||
+  '1607727992';
+// Tab name fallback only used if no GID and no env override of name.
 const RESUME_TAB = process.env.NZCFL_RESUME_TAB || 'Resume';
 
 let cache = null;
@@ -27,7 +38,19 @@ function isYear(val) {
 async function loadResume() {
   if (cache) return cache;
 
-  const rows = await fetchSheetCsvCached(SHEET_ID, RESUME_TAB);
+  // Prefer GID-based fetch (matches other commands' usage of the same sheet).
+  // Falls back to tab-name fetch if no GID is configured.
+  const useGid = !!RESUME_GID;
+  const tabId = useGid ? RESUME_GID : RESUME_TAB;
+  let rows;
+  try {
+    rows = await fetchSheetCsvCached(SHEET_ID, tabId, useGid);
+  } catch (err) {
+    console.warn(
+      `[coachTenures] Resume fetch failed (sheet=${SHEET_ID}, ${useGid ? 'gid' : 'tab'}=${tabId}): ${err.message}`,
+    );
+    return [];
+  }
   if (!rows || rows.length < 2) return [];
 
   const header = rows[0];

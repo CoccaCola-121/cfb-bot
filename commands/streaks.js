@@ -1,15 +1,15 @@
 // ============================================================
 // commands/streaks.js
-// Top 5 longest win/loss streaks per opponent for a coach or team.
 //
-// Usage:
-//   /streaks [mode:team|coach] [subject:<name>] [filter_opponent:<name>]
+// /streaks [vs:<X>] [as:team|coach]
 //
-//   mode = coach (default)  -> subject is a coach (defaults to your /iam coach)
-//   mode = team             -> subject is a team  (defaults to your /iam team)
+//   as:team  (default) → your linked team's all-time streaks per opponent
+//   as:coach           → your coach career's streaks (across every team
+//                         you've coached, attributed via Resume sheet
+//                         + h2hOverrides)
 //
-// Pulls all games from utils/h2h.js (CSV + JSON + overrides),
-// groups streaks per opponent, then takes the top 5 of each result type.
+//   vs:<opponent>      → (optional) restrict to a single opponent
+//                         (matches team name or coach handle)
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -31,30 +31,27 @@ const {
   getLatestLeagueData,
   getTeamName,
   getTeamLogoUrl,
-  findTeamByName,
 } = require('../utils/data');
 
-// ─── Formatting ─────────────────────────────────────────────
+// ─── Tiny formatters ────────────────────────────────────────
 
 function fmtRange(s) {
   const sy = s.start.year;
   const ey = s.end.year;
-  if (sy === ey) return `(${sy})`;
-  return `(${sy}–${ey})`;
+  return sy === ey ? `${sy}` : `${sy}–${ey}`;
 }
 
 function fmtStreakLine(s, idx) {
-  const rank = idx + 1;
-  return `\`${String(rank).padStart(2, ' ')}\`  **${s.length}** vs **${s.opponent}** ${fmtRange(s)}`;
+  const rank = `**${idx + 1}.**`;
+  return `${rank} **${s.length}** vs **${s.opponent}** · ${fmtRange(s)}`;
 }
 
 function trimField(text, max = 1024) {
-  if (!text) return '—';
+  if (!text) return '_None_';
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + '…';
 }
 
-// Sort runs: longest first, then most recent end, then alphabetic opponent.
 function sortRuns(runs) {
   return [...runs].sort((a, b) => {
     if (b.length !== a.length) return b.length - a.length;
@@ -66,49 +63,39 @@ function sortRuns(runs) {
 
 // ─── Mode handlers ──────────────────────────────────────────
 
-async function teamMode(interaction, subjectInput, filterOpponent) {
+async function teamMode(interaction, vs) {
   const leagueData = getLatestLeagueData();
+  const myTeam = leagueData
+    ? await getUserTeam(leagueData, interaction.user.id)
+    : null;
 
-  // Resolve subject team.
-  let subjectTeam = null;
-  let subjectName = null;
-
-  if (subjectInput) {
-    subjectTeam = leagueData ? findTeamByName(leagueData, subjectInput) : null;
-    subjectName = subjectTeam ? getTeamName(subjectTeam) : subjectInput;
-  } else {
-    subjectTeam = leagueData
-      ? await getUserTeam(leagueData, interaction.user.id)
-      : null;
-    if (!subjectTeam) {
-      return interaction.editReply(
-        "❌ I don't know which team you coach. Run `/iam` first or pass `subject:<team>`.",
-      );
-    }
-    subjectName = getTeamName(subjectTeam);
+  if (!myTeam) {
+    return interaction.editReply(
+      "❌ I don't know which team you coach. Run `/iam` first.",
+    );
   }
 
+  const myName = getTeamName(myTeam);
   const allGames = await loadAllGames();
-  const subjectFn = teamSubjectFn(subjectName, leagueData);
-  const opponentFn = teamOpponentFn(subjectName, leagueData);
+  const subjectFn = teamSubjectFn(myName, leagueData);
+  const opponentFn = teamOpponentFn(myName, leagueData);
 
-  // Pre-filter to games this team played.
   let games = allGames.filter(
     (g) =>
-      sameTeam(g.teamA, subjectName, leagueData) ||
-      sameTeam(g.teamB, subjectName, leagueData),
+      sameTeam(g.teamA, myName, leagueData) ||
+      sameTeam(g.teamB, myName, leagueData),
   );
 
-  if (filterOpponent) {
+  if (vs) {
     games = games.filter((g) => {
       const opp = opponentFn(g);
-      return opp && sameTeam(opp, filterOpponent, leagueData);
+      return opp && sameTeam(opp, vs, leagueData);
     });
   }
 
   if (!games.length) {
     return interaction.editReply(
-      `No games found for **${subjectName}**${filterOpponent ? ` vs **${filterOpponent}**` : ''}.`,
+      `No games found for **${myName}**${vs ? ` vs **${vs}**` : ''}.`,
     );
   }
 
@@ -116,54 +103,50 @@ async function teamMode(interaction, subjectInput, filterOpponent) {
   const wins = sortRuns(runs.filter((r) => r.type === 'win')).slice(0, 5);
   const losses = sortRuns(runs.filter((r) => r.type === 'loss')).slice(0, 5);
 
-  const winText = wins.length
-    ? wins.map(fmtStreakLine).join('\n')
-    : '_None_';
-  const lossText = losses.length
-    ? losses.map(fmtStreakLine).join('\n')
-    : '_None_';
+  const winText  = wins.length   ? wins.map(fmtStreakLine).join('\n')   : null;
+  const lossText = losses.length ? losses.map(fmtStreakLine).join('\n') : null;
 
-  const filterSuffix = filterOpponent ? ` vs ${filterOpponent}` : '';
+  const filterSuffix = vs ? ` vs ${vs}` : '';
   const embed = new EmbedBuilder()
-    .setTitle(`📈 Streaks — ${subjectName}${filterSuffix}`)
+    .setTitle(`📈 ${myName} · Streaks${filterSuffix}`)
     .setColor(0x2980b9)
     .addFields(
-      { name: '🏆 Top 5 Win Streaks',  value: trimField(winText)  },
-      { name: '💀 Top 5 Loss Streaks', value: trimField(lossText) },
+      { name: '🟢 Top 5 Win Streaks',  value: trimField(winText)  },
+      { name: '🔴 Top 5 Loss Streaks', value: trimField(lossText) },
     )
     .setFooter({
-      text: `${runs.length} streak${runs.length === 1 ? '' : 's'} across ${games.length} games`,
+      text: `${games.length} game${games.length === 1 ? '' : 's'} · ${runs.length} streak${runs.length === 1 ? '' : 's'} tracked`,
     })
     .setTimestamp();
 
-  if (subjectTeam && getTeamLogoUrl) {
-    const logo = getTeamLogoUrl(subjectTeam);
+  if (myTeam && getTeamLogoUrl) {
+    const logo = getTeamLogoUrl(myTeam);
     if (logo) embed.setThumbnail(logo);
   }
 
   return interaction.editReply({ embeds: [embed] });
 }
 
-async function coachMode(interaction, subjectInput, filterOpponent) {
+async function coachMode(interaction, vs) {
   const leagueData = getLatestLeagueData();
-  const subjectCoach = subjectInput || getUserCoachName(interaction.user.id);
+  const myCoach = getUserCoachName(interaction.user.id);
 
-  if (!subjectCoach) {
+  if (!myCoach) {
     return interaction.editReply(
-      "❌ I don't know which coach you are. Run `/iam` first or pass `subject:<coach>`.",
+      "❌ I don't know which coach you are. Run `/iam` first.",
     );
   }
 
   const allGames = await loadAllGames();
-  const hydrated = await hydrateCoachPerspective(allGames, subjectCoach);
+  const hydrated = await hydrateCoachPerspective(allGames, myCoach);
 
   if (!hydrated.length) {
     return interaction.editReply(
-      `No tracked games found for **${subjectCoach}** yet.`,
+      `No tracked games found for **${myCoach}** yet.`,
     );
   }
 
-  // Resolve opponent coach + display label per game (async due to coachAttribution).
+  // Tag opponent coach (if known) so streaks group across team changes.
   const enriched = [];
   for (const g of hydrated) {
     const oppTeam = sameTeam(g.teamA, g.__subjectTeam, leagueData)
@@ -177,13 +160,11 @@ async function coachMode(interaction, subjectInput, filterOpponent) {
       oppCoach = null;
     }
 
-    // Display: coach if we have one, else team. This is the grouping key.
     const opponentLabel = oppCoach || oppTeam;
 
-    // Apply filter_opponent: match against coach OR team.
-    if (filterOpponent) {
-      const matchesCoach = oppCoach && coachMatches(filterOpponent, oppCoach);
-      const matchesTeamName = sameTeam(filterOpponent, oppTeam, leagueData);
+    if (vs) {
+      const matchesCoach = oppCoach && coachMatches(vs, oppCoach);
+      const matchesTeamName = sameTeam(vs, oppTeam, leagueData);
       if (!matchesCoach && !matchesTeamName) continue;
     }
 
@@ -197,7 +178,7 @@ async function coachMode(interaction, subjectInput, filterOpponent) {
 
   if (!enriched.length) {
     return interaction.editReply(
-      `No games for **${subjectCoach}**${filterOpponent ? ` vs **${filterOpponent}**` : ''}.`,
+      `No games for **${myCoach}**${vs ? ` vs **${vs}**` : ''}.`,
     );
   }
 
@@ -208,23 +189,19 @@ async function coachMode(interaction, subjectInput, filterOpponent) {
   const wins = sortRuns(runs.filter((r) => r.type === 'win')).slice(0, 5);
   const losses = sortRuns(runs.filter((r) => r.type === 'loss')).slice(0, 5);
 
-  const winText = wins.length
-    ? wins.map(fmtStreakLine).join('\n')
-    : '_None_';
-  const lossText = losses.length
-    ? losses.map(fmtStreakLine).join('\n')
-    : '_None_';
+  const winText  = wins.length   ? wins.map(fmtStreakLine).join('\n')   : null;
+  const lossText = losses.length ? losses.map(fmtStreakLine).join('\n') : null;
 
-  const filterSuffix = filterOpponent ? ` vs ${filterOpponent}` : '';
+  const filterSuffix = vs ? ` vs ${vs}` : '';
   const embed = new EmbedBuilder()
-    .setTitle(`📈 Streaks — ${subjectCoach}${filterSuffix}`)
+    .setTitle(`📈 ${myCoach} · Career Streaks${filterSuffix}`)
     .setColor(0x9b59b6)
     .addFields(
-      { name: '🏆 Top 5 Win Streaks',  value: trimField(winText)  },
-      { name: '💀 Top 5 Loss Streaks', value: trimField(lossText) },
+      { name: '🟢 Top 5 Win Streaks',  value: trimField(winText)  },
+      { name: '🔴 Top 5 Loss Streaks', value: trimField(lossText) },
     )
     .setFooter({
-      text: `${runs.length} streak${runs.length === 1 ? '' : 's'} across ${enriched.length} games`,
+      text: `${enriched.length} game${enriched.length === 1 ? '' : 's'} · ${runs.length} streak${runs.length === 1 ? '' : 's'} tracked`,
     })
     .setTimestamp();
 
@@ -239,40 +216,32 @@ module.exports = {
     .setDescription('Top 5 longest win/loss streaks per opponent.')
     .addStringOption((o) =>
       o
-        .setName('mode')
-        .setDescription('Subject is a coach or a team (default: coach).')
+        .setName('vs')
+        .setDescription('Restrict to a single opponent (team or coach).')
+        .setRequired(false),
+    )
+    .addStringOption((o) =>
+      o
+        .setName('as')
+        .setDescription("Whose record? 'team' (default) = your linked team. 'coach' = your coach career.")
         .setRequired(false)
         .addChoices(
-          { name: 'coach', value: 'coach' },
           { name: 'team',  value: 'team'  },
+          { name: 'coach', value: 'coach' },
         ),
-    )
-    .addStringOption((o) =>
-      o
-        .setName('subject')
-        .setDescription('Override subject name (default: your linked coach/team).')
-        .setRequired(false),
-    )
-    .addStringOption((o) =>
-      o
-        .setName('filter_opponent')
-        .setDescription('Only count streaks against this opponent (team or coach).')
-        .setRequired(false),
     ),
 
   async execute(interaction) {
     await interaction.deferReply();
 
-    const mode = interaction.options.getString('mode') || 'coach';
-    const subject = interaction.options.getString('subject') || null;
-    const filterOpponent =
-      interaction.options.getString('filter_opponent') || null;
+    const vs = interaction.options.getString('vs') || null;
+    const as = interaction.options.getString('as') || 'team';
 
     try {
-      if (mode === 'team') {
-        return await teamMode(interaction, subject, filterOpponent);
+      if (as === 'coach') {
+        return await coachMode(interaction, vs);
       }
-      return await coachMode(interaction, subject, filterOpponent);
+      return await teamMode(interaction, vs);
     } catch (err) {
       console.error('[streaks] failed:', err);
       return interaction.editReply(

@@ -30,8 +30,17 @@ const { matchesTeam } = require('./sheets');
 const { coachAttribution, coachAliasesFor } = require('./coachTenures');
 const overrides = require('./h2hOverrides');
 
-const SHEET_ID = process.env.NZCFL_STATS_SHEET_ID;
-const STATS_TAB = process.env.NZCFL_STATS_TAB || 'Stats';
+// Sheet wiring — defaults match the rest of the bot:
+//   STATS_SHEET_ID is the env var the rest of the codebase uses.
+//   NZCFL_STATS_SHEET_ID is supported as an alias for forward compat.
+//   STATS_TAB / STATS_GID let the operator point at a specific tab without
+//   touching code; default tab name is "Stats".
+const SHEET_ID =
+  process.env.STATS_SHEET_ID || process.env.NZCFL_STATS_SHEET_ID || null;
+const STATS_TAB =
+  process.env.STATS_TAB || process.env.NZCFL_STATS_TAB || 'Stats';
+const STATS_GID =
+  process.env.STATS_GID || process.env.NZCFL_STATS_GID || null;
 
 // ============================================================
 // Name helpers
@@ -148,11 +157,19 @@ function parseWeekCell(raw) {
 // ============================================================
 
 async function loadCsvGames() {
-  if (!SHEET_ID) return [];
+  if (!SHEET_ID) {
+    console.warn('[h2h] STATS_SHEET_ID not configured; skipping CSV load');
+    return [];
+  }
+  const tabId = STATS_GID || STATS_TAB;
+  const byGid = !!STATS_GID;
   let rows;
   try {
-    rows = await fetchSheetCsvCached(SHEET_ID, STATS_TAB);
-  } catch {
+    rows = await fetchSheetCsvCached(SHEET_ID, tabId, byGid);
+  } catch (err) {
+    console.warn(
+      `[h2h] CSV fetch failed (sheet=${SHEET_ID}, ${byGid ? 'gid' : 'tab'}=${tabId}): ${err.message}`,
+    );
     return [];
   }
   if (!Array.isArray(rows) || rows.length < 2) return [];
