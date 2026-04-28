@@ -1,306 +1,341 @@
 // ============================================================
 // commands/h2h.js
-// Head-to-head command with team, coach, and team-vs-team modes
+// Head-to-head between teams or coaches.
+//
+// Usage:
+//   /h2h target:<team or coach> [scope:team|coach]
+//
+//   scope = team  (default)  -> my linked team vs target team
+//   scope = coach            -> my linked coach vs target
+//                                  • if target matches a coach handle,
+//                                    coach-vs-coach
+//                                  • otherwise coach-vs-team
+//
+// All data flow goes through utils/h2h.js (CSV + league JSON + overrides).
+// All record/streak math goes through utils/streakEngine.js.
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
-const { getLatestLeagueData, getTeamName, findTeamByName } = require('../utils/data');
-const { getUserCoachName, getUserTeam } = require('../utils/userMap');
-const { loadAllGames } = require('../utils/h2hData');
-const { currentStreak, recordFor } = require('../utils/streakEngine');
 const {
-  sameName,
+  loadAllGames,
+  sameTeam,
+  coachMatches,
   teamSubjectFn,
   hydrateCoachPerspective,
-  hydratedCoachSubjectFn,
-  hydratedCoachOpponentTeamFn,
-  coachMatches,
-} = require('../utils/h2hSubjects');
+  coachSubjectFn,
+} = require('../utils/h2h');
+const { currentStreak, recordFor } = require('../utils/streakEngine');
 const { coachAttribution } = require('../utils/coachTenures');
+const { getUserCoachName, getUserTeam } = require('../utils/userMap');
+const {
+  getLatestLeagueData,
+  getTeamName,
+  getTeamLogoUrl,
+  findTeamByName,
+} = require('../utils/data');
 
-function fmtPct(wins, losses) {
-  const total = wins + losses;
-  if (!total) return '.000';
-  return (wins / total).toFixed(3).replace(/^0/, '');
+// ─── Formatting ─────────────────────────────────────────────
+
+function fmtPct(p) {
+  if (!Number.isFinite(p)) return '0.0%';
+  return (p * 100).toFixed(1) + '%';
 }
 
-function fmtWeek(game) {
-  return game.weekLabel || `W${game.week}`;
+function fmtRecord(r) {
+  return `${r.wins}-${r.losses}`;
+}
+
+function fmtStreak(s) {
+  return s ? s.label : '—';
+}
+
+function fmtGameLine(g, viewerSide, leagueData) {
+  const viewerIsA = sameTeam(g.teamA, viewerSide, leagueData);
+  const myScore = viewerIsA ? g.scoreA : g.scoreB;
+  const oppScore = viewerIsA ? g.scoreB : g.scoreA;
+  const opp = viewerIsA ? g.teamB : g.teamA;
+
+  let result = '–';
+  if (g.winner) {
+    result = sameTeam(g.winner, viewerSide, leagueData) ? 'W' : 'L';
+  }
+
+  const week = g.weekLabel || `Wk ${g.week}`;
+  const ms = myScore == null ? '?' : myScore;
+  const os = oppScore == null ? '?' : oppScore;
+  return `**${result}** ${ms}-${os} vs ${opp} *(${g.year} ${week})*`;
+}
+
+function trimField(text, max = 1024) {
+  if (!text) return '—';
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + '…';
 }
 
 function sourceCounts(games) {
-  const counts = {};
-  for (const g of games || []) {
-    counts[g.source || 'unknown'] = (counts[g.source || 'unknown'] || 0) + 1;
+  const c = { csv: 0, json: 0, override: 0 };
+  for (const g of games) {
+    if (g.source === 'csv') c.csv++;
+    else if (g.source === 'json') c.json++;
+    else if (String(g.source || '').startsWith('override')) c.override++;
   }
-
-  const parts = [];
-  if (counts.csv) parts.push(`${counts.csv} CSV`);
-  if (counts.json) parts.push(`${counts.json} JSON`);
-  if (counts['override-add'] || counts.override) {
-    parts.push(`${(counts['override-add'] || 0) + (counts.override || 0)} override`);
-  }
-
-  return parts.length ? parts.join(' · ') : '0 games';
+  return c;
 }
 
-function gameLine(game, subjectFn) {
-  const result = subjectFn(game);
-  const tag = result === 'win' ? 'W' : result === 'loss' ? 'L' : '—';
-
-  return `${game.year} ${fmtWeek(game)} — ${game.teamA} ${game.scoreA}, ${game.teamB} ${game.scoreB} (${tag})`;
-}
-
-function biggestBlowout(games) {
-  if (!games.length) return null;
-
+function biggestBlowout(games, viewerSide, leagueData) {
   let best = null;
   for (const g of games) {
-    const margin = Math.abs(Number(g.scoreA || 0) - Number(g.scoreB || 0));
-    if (!best || margin > best.margin) {
-      best = { game: g, margin };
-    }
+    if (g.scoreA == null || g.scoreB == null) continue;
+    const margin = Math.abs(g.scoreA - g.scoreB);
+    if (!best || margin > best.margin) best = { game: g, margin };
   }
-
-  return best;
+  if (!best) return null;
+  return `${fmtGameLine(best.game, viewerSide, leagueData)} *(margin ${best.margin})*`;
 }
 
 function longestGap(games) {
   if (games.length < 2) return null;
+  const sorted = [...games].sort(
+    (a, b) => a.year - b.year || a.week - b.week
+  );
+  let best = null;
+  for (let i = 1; i < sorted.length; i++) {
+    const gap =
+      (sorted[i].year - sorted[i - 1].year) * 17 +
+      (sorted[i].week - sorted[i - 1].week);
+    if (!best || gap > best.gap) {
+      best = { gap, from: sorted[i - 1], to: sorted[i] };
+    }
+  }
+  if (!best) return null;
+  return `${best.from.year} → ${best.to.year} (${best.gap} weeks)`;
+}
 
-  const sorted = [...games].sort((a, b) =>
-    a.year !== b.year ? a.year - b.year : a.week - b.week
+// ─── Mode handlers ──────────────────────────────────────────
+
+async function teamMode(interaction, target) {
+  const leagueData = getLatestLeagueData();
+  const myTeam = leagueData
+    ? await getUserTeam(leagueData, interaction.user.id)
+    : null;
+
+  if (!myTeam) {
+    return interaction.editReply(
+      "❌ I don't know which team you coach. Run `/iam` first."
+    );
+  }
+
+  const myName = getTeamName(myTeam);
+  const targetTeam = leagueData ? findTeamByName(leagueData, target) : null;
+  const targetDisplay = targetTeam ? getTeamName(targetTeam) : target;
+
+  const all = await loadAllGames();
+  const games = all.filter(
+    (g) =>
+      (sameTeam(g.teamA, myName, leagueData) &&
+        sameTeam(g.teamB, target, leagueData)) ||
+      (sameTeam(g.teamB, myName, leagueData) &&
+        sameTeam(g.teamA, target, leagueData))
   );
 
-  let best = null;
+  if (!games.length) {
+    return interaction.editReply(
+      `No meetings between **${myName}** and **${targetDisplay}**.`
+    );
+  }
 
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1];
-    const cur = sorted[i];
-    const gap = (cur.year - prev.year) * 20 + (cur.week - prev.week);
+  const subject = teamSubjectFn(myName, leagueData);
+  const record = recordFor(games, subject);
+  const streak = currentStreak(games, subject);
+  const counts = sourceCounts(games);
 
-    if (!best || gap > best.gap) {
-      best = { gap, from: prev, to: cur };
+  const recentLines = games
+    .slice(-10)
+    .reverse()
+    .map((g) => fmtGameLine(g, myName, leagueData));
+
+  const blowout = biggestBlowout(games, myName, leagueData);
+  const gap = longestGap(games);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`H2H — ${myName} vs ${targetDisplay}`)
+    .setColor(0x2980b9)
+    .setDescription(
+      `**${fmtRecord(record)}** (${fmtPct(record.pct)})  •  Streak **${fmtStreak(streak)}**  •  ${record.games} meeting${record.games === 1 ? '' : 's'}`
+    )
+    .addFields(
+      {
+        name: `Recent meetings (${Math.min(10, games.length)})`,
+        value: trimField(recentLines.join('\n')),
+      },
+      {
+        name: 'Notable',
+        value: trimField(
+          [
+            blowout ? `**Biggest margin:** ${blowout}` : null,
+            gap ? `**Longest gap:** ${gap}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n') || '—'
+        ),
+      }
+    )
+    .setFooter({
+      text: `csv:${counts.csv} • json:${counts.json} • overrides:${counts.override}`,
+    })
+    .setTimestamp();
+
+  const logo = getTeamLogoUrl ? getTeamLogoUrl(myTeam) : null;
+  if (logo) embed.setThumbnail(logo);
+
+  return interaction.editReply({ embeds: [embed] });
+}
+
+async function coachMode(interaction, target) {
+  const leagueData = getLatestLeagueData();
+  const myCoach = getUserCoachName(interaction.user.id);
+
+  if (!myCoach) {
+    return interaction.editReply(
+      "❌ I don't know which coach you are. Run `/iam` first."
+    );
+  }
+
+  const all = await loadAllGames();
+  const hydrated = await hydrateCoachPerspective(all, myCoach);
+
+  if (!hydrated.length) {
+    return interaction.editReply(
+      `No tracked games found for **${myCoach}** yet.`
+    );
+  }
+
+  // Decide: is target a coach or a team?
+  // Probe coachAttribution on the *opposing* side of every hydrated game.
+  // If the opposing-side coach matches `target`, treat as coach-vs-coach.
+  // Otherwise fall back to coach-vs-team.
+
+  const matchedAsCoach = [];
+  const matchedAsTeam = [];
+
+  for (const g of hydrated) {
+    const oppTeam = sameTeam(g.teamA, g.__subjectTeam, leagueData)
+      ? g.teamB
+      : g.teamA;
+
+    const oppCoach = await coachAttribution(oppTeam, g.year, g.week);
+    if (oppCoach && coachMatches(target, oppCoach)) {
+      matchedAsCoach.push({
+        ...g,
+        __opponentCoach: oppCoach,
+        __opponentTeam: oppTeam,
+      });
+      continue;
+    }
+
+    if (sameTeam(target, oppTeam, leagueData)) {
+      matchedAsTeam.push({ ...g, __opponentTeam: oppTeam });
     }
   }
 
-  return best;
-}
+  const useCoach = matchedAsCoach.length > 0;
+  const games = useCoach ? matchedAsCoach : matchedAsTeam;
 
-function resolveTeamName(leagueData, input) {
-  if (!input) return null;
-
-  const team = findTeamByName
-    ? findTeamByName(leagueData, input)
-    : null;
-
-  return team ? getTeamName(team) : String(input).trim();
-}
-
-async function filterCoachVsCoach(allGames, coachA, coachB) {
-  const aGames = await hydrateCoachPerspective(allGames, coachA);
-  const out = [];
-
-  for (const g of aGames) {
-    const oppTeam = hydratedCoachOpponentTeamFn()(g);
-    if (!oppTeam) continue;
-
-    const oppCoach = await coachAttribution(oppTeam, g.year, g.week);
-    if (coachMatches(coachB, oppCoach)) out.push(g);
+  if (!games.length) {
+    return interaction.editReply(
+      `No meetings for **${myCoach}** vs **${target}**.`
+    );
   }
 
-  return out;
-}
+  const subject = coachSubjectFn();
+  const record = recordFor(games, subject);
+  const streak = currentStreak(games, subject);
+  const counts = sourceCounts(games);
 
-async function filterCoachVsTeam(allGames, coach, team) {
-  const coachGames = await hydrateCoachPerspective(allGames, coach);
+  const recentLines = games
+    .slice(-10)
+    .reverse()
+    .map((g) => fmtGameLine(g, g.__subjectTeam, leagueData));
 
-  return coachGames.filter((g) => {
-    const opp = hydratedCoachOpponentTeamFn()(g);
-    return sameName(opp, team);
-  });
-}
-
-function filterTeamVsTeam(allGames, teamA, teamB) {
-  return allGames.filter(
-    (g) =>
-      (sameName(g.teamA, teamA) && sameName(g.teamB, teamB)) ||
-      (sameName(g.teamA, teamB) && sameName(g.teamB, teamA))
+  const blowout = biggestBlowout(
+    games,
+    games[games.length - 1].__subjectTeam,
+    leagueData
   );
+  const gap = longestGap(games);
+
+  const titleSuffix = useCoach ? '(coach)' : '(team)';
+  const embed = new EmbedBuilder()
+    .setTitle(`H2H — ${myCoach} vs ${target} ${titleSuffix}`)
+    .setColor(useCoach ? 0x9b59b6 : 0x2980b9)
+    .setDescription(
+      `**${fmtRecord(record)}** (${fmtPct(record.pct)})  •  Streak **${fmtStreak(streak)}**  •  ${record.games} meeting${record.games === 1 ? '' : 's'}`
+    )
+    .addFields(
+      {
+        name: `Recent meetings (${Math.min(10, games.length)})`,
+        value: trimField(recentLines.join('\n')),
+      },
+      {
+        name: 'Notable',
+        value: trimField(
+          [
+            blowout ? `**Biggest margin:** ${blowout}` : null,
+            gap ? `**Longest gap:** ${gap}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n') || '—'
+        ),
+      }
+    )
+    .setFooter({
+      text: `csv:${counts.csv} • json:${counts.json} • overrides:${counts.override}`,
+    })
+    .setTimestamp();
+
+  return interaction.editReply({ embeds: [embed] });
 }
+
+// ─── Slash command ──────────────────────────────────────────
 
 module.exports = {
   data: new SlashCommandBuilder()
-  .setName('h2h')
-  .setDescription('Show head-to-head records.')
-  .addStringOption((opt) =>
-    opt
-      .setName('opponent')
-      .setDescription('Opponent team or coach')
-      .setRequired(true)
-  )
-  .addStringOption((opt) =>
-    opt
-      .setName('mode')
-      .setDescription('H2H mode')
-      .setRequired(false)
-      .addChoices(
-        { name: 'team', value: 'team' },
-        { name: 'coach', value: 'coach' },
-        { name: 'team-vs-team', value: 'team-vs-team' }
-      )
-  )
-  .addStringOption((opt) =>
-    opt
-      .setName('me_coach')
-      .setDescription('Override your linked coach name')
-      .setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt
-      .setName('me_team')
-      .setDescription('Override your linked team for team-vs-team mode')
-      .setRequired(false)
-  ),
+    .setName('h2h')
+    .setDescription('Head-to-head record vs a team or coach.')
+    .addStringOption((o) =>
+      o
+        .setName('target')
+        .setDescription('Team or coach to compare against')
+        .setRequired(true)
+    )
+    .addStringOption((o) =>
+      o
+        .setName('scope')
+        .setDescription('Whose perspective: my team or my coach')
+        .setRequired(false)
+        .addChoices(
+          { name: 'team', value: 'team' },
+          { name: 'coach', value: 'coach' }
+        )
+    ),
 
   async execute(interaction) {
     await interaction.deferReply();
 
-    const leagueData = getLatestLeagueData();
-    if (!leagueData?.teams) {
-      return interaction.editReply('❌ No league data loaded.');
+    const target = interaction.options.getString('target');
+    const scope = interaction.options.getString('scope') || 'team';
+
+    try {
+      if (scope === 'coach') {
+        return await coachMode(interaction, target);
+      }
+      return await teamMode(interaction, target);
+    } catch (err) {
+      console.error('[h2h] failed:', err);
+      return interaction.editReply(
+        `❌ H2H lookup failed: ${err.message || err}`
+      );
     }
-
-    const mode = interaction.options.getString('mode') || 'team';
-    const opponentRaw = interaction.options.getString('opponent');
-    const meCoachRaw = interaction.options.getString('me_coach');
-    const meTeamRaw = interaction.options.getString('me_team');
-
-    const allGames = await loadAllGames();
-
-    let subjectLabel = '';
-    let opponentLabel = '';
-    let games = [];
-    let subjectFn = null;
-
-    if (mode === 'team-vs-team') {
-      const linkedTeam = await getUserTeam(leagueData, interaction.user.id);
-      const subjectTeam =
-        resolveTeamName(leagueData, meTeamRaw) ||
-        (linkedTeam ? getTeamName(linkedTeam) : null);
-
-      if (!subjectTeam) {
-        return interaction.editReply(
-          '❌ No team specified and no linked team found. Use `me_team:` or run `/iam` first.'
-        );
-      }
-
-      const opponentTeam = resolveTeamName(leagueData, opponentRaw);
-
-      subjectLabel = subjectTeam;
-      opponentLabel = opponentTeam;
-
-      games = filterTeamVsTeam(allGames, subjectTeam, opponentTeam);
-      subjectFn = teamSubjectFn(subjectTeam);
-    } else if (mode === 'coach') {
-      const subjectCoach =
-        meCoachRaw ||
-        getUserCoachName(interaction.user.id);
-
-      if (!subjectCoach) {
-        return interaction.editReply(
-          '❌ No coach specified and no linked coach found. Use `me_coach:` or run `/iam` first.'
-        );
-      }
-
-      const opponentCoach = opponentRaw;
-
-      subjectLabel = subjectCoach;
-      opponentLabel = opponentCoach;
-
-      games = await filterCoachVsCoach(allGames, subjectCoach, opponentCoach);
-      subjectFn = hydratedCoachSubjectFn();
-    } else {
-      const subjectCoach =
-        meCoachRaw ||
-        getUserCoachName(interaction.user.id);
-
-      if (!subjectCoach) {
-        return interaction.editReply(
-          '❌ No coach specified and no linked coach found. Use `me_coach:` or run `/iam` first.'
-        );
-      }
-
-      const opponentTeam = resolveTeamName(leagueData, opponentRaw);
-
-      subjectLabel = subjectCoach;
-      opponentLabel = opponentTeam;
-
-      games = await filterCoachVsTeam(allGames, subjectCoach, opponentTeam);
-      subjectFn = hydratedCoachSubjectFn();
-    }
-
-    const record = recordFor(games, subjectFn);
-    const streak = currentStreak(games, subjectFn);
-
-    const desc =
-      record.games > 0
-        ? `All-time: **${record.wins}-${record.losses}** (${fmtPct(record.wins, record.losses)})` +
-          (streak ? ` · Streak: **${streak.label}**` : '')
-        : '0 meetings on record.';
-
-    const embed = new EmbedBuilder()
-      .setTitle(`H2H — ${subjectLabel} vs ${opponentLabel}`)
-      .setDescription(desc)
-      .setColor(0x2f80ed)
-      .setTimestamp();
-
-    if (games.length) {
-      const recent = [...games]
-        .sort((a, b) => {
-          if (b.year !== a.year) return b.year - a.year;
-          return b.week - a.week;
-        })
-        .slice(0, 10)
-        .map((g) => gameLine(g, subjectFn))
-        .join('\n');
-
-      embed.addFields({
-        name: 'Recent meetings',
-        value: recent || '—',
-      });
-
-      const notes = [];
-
-      const blowout = biggestBlowout(games);
-      if (blowout) {
-        notes.push(
-          `Biggest blowout: ${blowout.margin} pts, ${blowout.game.year} ${fmtWeek(blowout.game)}`
-        );
-      }
-
-      const gap = longestGap(games);
-      if (gap) {
-        notes.push(
-          `Longest gap: ${gap.from.year} ${fmtWeek(gap.from)} to ${gap.to.year} ${fmtWeek(gap.to)}`
-        );
-      }
-
-      if (notes.length) {
-        embed.addFields({
-          name: 'Notable',
-          value: notes.join('\n'),
-        });
-      }
-    }
-
-    embed.setFooter({
-      text: `${sourceCounts(allGames)} · Last loaded: ${new Date().toLocaleString('en-US', {
-        timeZone: 'America/Chicago',
-      })}`,
-    });
-
-    return interaction.editReply({ embeds: [embed] });
   },
 };

@@ -1,109 +1,35 @@
 // ============================================================
 // utils/h2hSubjects.js
-// Shared subject/opponent helpers for h2h, streaks, previews
+// DEPRECATED. Consolidated into utils/h2h.js.
+// Kept as a thin re-export so existing imports keep working.
 // ============================================================
 
-const { coachAttribution, coachAliasesFor } = require('./coachTenures');
-
-function normalizeKey(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^@/, '')
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]/g, '');
-}
-
-function sameName(a, b) {
-  return normalizeKey(a) === normalizeKey(b);
-}
-
-function coachMatches(inputCoach, actualCoach) {
-  if (!inputCoach || !actualCoach) return false;
-
-  const inputAliases = coachAliasesFor(inputCoach).map(normalizeKey);
-  const actualAliases = coachAliasesFor(actualCoach).map(normalizeKey);
-
-  for (const a of inputAliases) {
-    if (actualAliases.includes(a)) return true;
-  }
-
-  return sameName(inputCoach, actualCoach);
-}
-
-function teamSubjectFn(team) {
-  return (game) => {
-    if (!sameName(game.teamA, team) && !sameName(game.teamB, team)) return null;
-    if (!game.winner) return null;
-    return sameName(game.winner, team) ? 'win' : 'loss';
-  };
-}
-
-function teamOpponentFn(team) {
-  return (game) => {
-    if (sameName(game.teamA, team)) return game.teamB;
-    if (sameName(game.teamB, team)) return game.teamA;
-    return null;
-  };
-}
-
-async function coachSideForGame(game, coach) {
-  const aCoach = await coachAttribution(game.teamA, game.year, game.week);
-  const bCoach = await coachAttribution(game.teamB, game.year, game.week);
-
-  if (coachMatches(coach, aCoach)) return game.teamA;
-  if (coachMatches(coach, bCoach)) return game.teamB;
-
-  return null;
-}
-
-async function coachResultForGame(game, coach) {
-  const side = await coachSideForGame(game, coach);
-  if (!side) return null;
-  if (!game.winner) return null;
-  return sameName(game.winner, side) ? 'win' : 'loss';
-}
-
-async function hydrateCoachPerspective(games, coach) {
-  const out = [];
-
-  for (const game of games || []) {
-    const side = await coachSideForGame(game, coach);
-    if (!side) continue;
-
-    out.push({
-      ...game,
-      __subjectTeam: side,
-      __subjectCoach: coach,
-      __subjectResult: game.winner
-        ? (sameName(game.winner, side) ? 'win' : 'loss')
-        : null,
-    });
-  }
-
-  return out;
-}
-
-function hydratedCoachSubjectFn() {
-  return (game) => game.__subjectResult || null;
-}
-
-function hydratedCoachOpponentTeamFn() {
-  return (game) => {
-    if (!game.__subjectTeam) return null;
-    return sameName(game.teamA, game.__subjectTeam) ? game.teamB : game.teamA;
-  };
-}
-
-module.exports = {
-  normalizeKey,
-  sameName,
+const {
+  normKey,
+  sameTeam,
   coachMatches,
   teamSubjectFn,
   teamOpponentFn,
   coachSideForGame,
-  coachResultForGame,
   hydrateCoachPerspective,
-  hydratedCoachSubjectFn,
-  hydratedCoachOpponentTeamFn,
+  coachSubjectFn,
+  coachOpponentTeamFn,
+} = require('./h2h');
+
+// Legacy aliases used by older callers
+module.exports = {
+  normalizeKey: normKey,
+  sameName: sameTeam,
+  coachMatches,
+  teamSubjectFn,
+  teamOpponentFn,
+  coachSideForGame,
+  coachResultForGame: async (game, coach) => {
+    const side = await coachSideForGame(game, coach);
+    if (!side || !game.winner) return null;
+    return sameTeam(game.winner, side) ? 'win' : 'loss';
+  },
+  hydrateCoachPerspective,
+  hydratedCoachSubjectFn: coachSubjectFn,
+  hydratedCoachOpponentTeamFn: coachOpponentTeamFn,
 };
