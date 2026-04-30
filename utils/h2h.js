@@ -415,6 +415,50 @@ async function loadAllGames({ force = false } = {}) {
 
   dedup.sort((a, b) => (a.year - b.year) || (a.week - b.week));
 
+  // ─── Alias diagnostic ───────────────────────────────────────
+  // One-time dump per cache build: surface distinct CSV team strings that
+  // contain key tokens (michigan/spartan/wolverine), plus the league JSON's
+  // computed aliases for those teams. If the CSV strings don't appear in
+  // the alias set, that's why H2H lookups are returning too few games.
+  try {
+    const { getTeamAliases } = require('./sheets');
+    const tokens = ['michigan', 'spartan', 'wolverine'];
+    const distinct = new Map(); // string → count
+    for (const g of dedup) {
+      for (const s of [g.teamA, g.teamB]) {
+        if (!s) continue;
+        const lower = String(s).toLowerCase();
+        if (tokens.some((t) => lower.includes(t))) {
+          distinct.set(s, (distinct.get(s) || 0) + 1);
+        }
+      }
+    }
+    const sorted = [...distinct.entries()].sort((a, b) => b[1] - a[1]);
+    console.log(`[h2h] alias diag · distinct strings (michigan/spartan/wolverine): ${sorted.length}`);
+    for (const [name, count] of sorted.slice(0, 30)) {
+      console.log(`[h2h]   "${name}" × ${count}`);
+    }
+
+    if (ld?.teams) {
+      for (const t of ld.teams) {
+        if (t.disabled) continue;
+        const region = String(t.region || '').toLowerCase();
+        const name = String(t.name || '').toLowerCase();
+        if (
+          tokens.some((tok) => region.includes(tok) || name.includes(tok))
+        ) {
+          const aliases = [...getTeamAliases(t)];
+          console.log(
+            `[h2h]   league team: ${t.region} ${t.name} (abbrev=${t.abbrev}) → aliases=${JSON.stringify(aliases)}`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[h2h] alias diag failed:', err.message);
+  }
+  // ────────────────────────────────────────────────────────────
+
   cached = dedup;
   cachedAt = Date.now();
   return dedup;
