@@ -31,31 +31,38 @@ const { coachAttribution, coachAliasesFor } = require('./coachTenures');
 const overrides = require('./h2hOverrides');
 
 // Sheet wiring — H2H lives in its own sheet, separate from the league Stats
-// sheet that utils/data.js loads from STATS_SHEET_ID. Variables:
+// sheet that utils/data.js loads from STATS_SHEET_ID. Variables (H2H-only —
+// we deliberately do NOT fall back to STATS_* because the host environment
+// or process manager may have stale STATS_GID values that would hijack H2H):
 //   H2H_SHEET_ID  → spreadsheet ID for head-to-head history
 //   H2H_TAB       → tab name (default "Stats")
 //   H2H_GID       → numeric tab gid (preferred — survives tab renames)
-// Legacy STATS_* / NZCFL_STATS_* are read as last-resort fallbacks for older
-// configs. Hardcoded final fallback points at the live H2H sheet so the H2H
-// trio (/h2h, /streaks, /familytree) still works if .env ever gets reset.
+// Hardcoded final fallback points at the live H2H sheet so the H2H trio
+// (/h2h, /streaks, /familytree) still works if .env ever gets reset.
+const H2H_SHEET_ID_DEFAULT = '1bXibTnivjhlWZVbt2RpbALuxriFDWgdR8pscPf9zLhw';
+const H2H_TAB_DEFAULT = 'Stats';
+const H2H_GID_DEFAULT = '495263146';
+
 const SHEET_ID =
   process.env.H2H_SHEET_ID ||
   process.env.NZCFL_H2H_SHEET_ID ||
-  process.env.STATS_SHEET_ID ||
-  process.env.NZCFL_STATS_SHEET_ID ||
-  '1bXibTnivjhlWZVbt2RpbALuxriFDWgdR8pscPf9zLhw';
+  H2H_SHEET_ID_DEFAULT;
 const STATS_TAB =
-  process.env.H2H_TAB ||
-  process.env.NZCFL_H2H_TAB ||
-  process.env.STATS_TAB ||
-  process.env.NZCFL_STATS_TAB ||
-  'Stats';
+  process.env.H2H_TAB || process.env.NZCFL_H2H_TAB || H2H_TAB_DEFAULT;
 const STATS_GID =
-  process.env.H2H_GID ||
-  process.env.NZCFL_H2H_GID ||
-  process.env.STATS_GID ||
-  process.env.NZCFL_STATS_GID ||
-  '495263146';
+  process.env.H2H_GID || process.env.NZCFL_H2H_GID || H2H_GID_DEFAULT;
+
+// One-time visibility — log which source each value came from so a stale
+// shell env never silently hijacks the sheet again.
+console.log(
+  `[h2h] config · sheet=${SHEET_ID} (from ${
+    process.env.H2H_SHEET_ID ? 'H2H_SHEET_ID' :
+    process.env.NZCFL_H2H_SHEET_ID ? 'NZCFL_H2H_SHEET_ID' : 'hardcoded default'
+  }) · gid=${STATS_GID} (from ${
+    process.env.H2H_GID ? 'H2H_GID' :
+    process.env.NZCFL_H2H_GID ? 'NZCFL_H2H_GID' : 'hardcoded default'
+  }) · tab=${STATS_TAB}`,
+);
 
 // ============================================================
 // Name helpers
