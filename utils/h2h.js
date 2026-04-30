@@ -223,6 +223,10 @@ async function loadCsvGames() {
     console.warn('[h2h] H2H_SHEET_ID not configured; skipping CSV load');
     return [];
   }
+  console.log(
+    `[h2h] csv load · sheet=${SHEET_ID.slice(0, 8)}… gid=${STATS_GID || '(none)'} tab=${STATS_TAB}`,
+  );
+
   const attempts = [];
   if (STATS_GID) attempts.push({ tabId: STATS_GID, byGid: true });
   if (STATS_TAB) attempts.push({ tabId: STATS_TAB, byGid: false });
@@ -235,22 +239,39 @@ async function loadCsvGames() {
       rows = await fetchSheetCsvCached(SHEET_ID, tabId, byGid);
     } catch (err) {
       console.warn(
-        `[h2h] CSV fetch failed (sheet=${SHEET_ID}, ${byGid ? 'gid' : 'tab'}=${tabId}): ${err.message}`,
+        `[h2h]   ${byGid ? 'gid' : 'tab'}=${tabId} → fetch FAILED: ${err.message}`,
       );
       continue;
     }
-    if (!Array.isArray(rows) || rows.length < 2) continue;
+    console.log(
+      `[h2h]   ${byGid ? 'gid' : 'tab'}=${tabId} → ${rows?.length ?? 0} rows`,
+    );
+
+    if (!Array.isArray(rows) || rows.length < 2) {
+      console.log('[h2h]     skipping — not enough rows');
+      continue;
+    }
 
     const header = rows[0] || [];
+    console.log(`[h2h]     header: ${JSON.stringify(header.slice(0, 12))}`);
+    if (rows[1]) {
+      console.log(`[h2h]     row[1]: ${JSON.stringify(rows[1].slice(0, 12))}`);
+    }
+
     const games = [];
+    let dropMissingFields = 0;
+    let dropBadWeek = 0;
+    let dropDash = 0;
 
     for (let i = 1; i < rows.length; i++) {
       const parsed = parseCsvGameRow(rows[i] || [], header);
       const { week, weekLabel } = parseWeekCell(parsed.rawWeek);
 
-      if (!Number.isFinite(parsed.year) || !parsed.teamA || !parsed.teamB) continue;
-      if (!Number.isFinite(week)) continue;
-      if (parsed.teamA === '-' || parsed.teamB === '-') continue;
+      if (!Number.isFinite(parsed.year) || !parsed.teamA || !parsed.teamB) {
+        dropMissingFields++; continue;
+      }
+      if (!Number.isFinite(week)) { dropBadWeek++; continue; }
+      if (parsed.teamA === '-' || parsed.teamB === '-') { dropDash++; continue; }
 
       games.push(
         makeGame({
@@ -266,11 +287,15 @@ async function loadCsvGames() {
       );
     }
 
-    if (games.length > bestGames.length) {
-      bestGames = games;
-    }
+    console.log(
+      `[h2h]     kept ${games.length} games · dropped ` +
+      `missingFields=${dropMissingFields} badWeek=${dropBadWeek} dash=${dropDash}`,
+    );
+
+    if (games.length > bestGames.length) bestGames = games;
   }
 
+  console.log(`[h2h] csv load → ${bestGames.length} games total`);
   return bestGames;
 }
 
