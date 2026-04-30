@@ -155,6 +155,19 @@ function parseWeekCell(raw) {
   }
 
   const lower = v.toLowerCase();
+
+  // Regular season "Week 1", "Wk 5", "W12" etc. — most common case in this
+  // sheet (which writes the literal string "Week N" rather than a bare
+  // number). Has to come BEFORE the keyword tests below so "Week" doesn't
+  // get eaten by anything else.
+  const wkMatch = lower.match(/^(?:week|wk|w)\s*(\d{1,2})\b/);
+  if (wkMatch) {
+    const wk = Number(wkMatch[1]);
+    if (Number.isFinite(wk)) {
+      return { week: wk, weekLabel: getWeekLabel(wk) };
+    }
+  }
+
   // National championship FIRST — must say "national" or "natty" so it
   // doesn't swallow conference title games. Order matters here.
   if (/national\s*(champ|title)|natty\b/.test(lower)) {
