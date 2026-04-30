@@ -51,10 +51,19 @@ function fmtWeek(g) {
   return g.weekLabel || `Wk ${g.week}`;
 }
 
+// Bowl / playoff / conference-title / national-title rows on the H2H sheet
+// are tracked with a synthetic "1-0" score (only the winner is meaningful).
+// Treat any 1-0 game as a placeholder so we can render it as "Won/Lost"
+// instead of pretending the game ended 1 to 0.
+function isPlaceholderScore(g) {
+  return (
+    (g.scoreA === 1 && g.scoreB === 0) ||
+    (g.scoreA === 0 && g.scoreB === 1)
+  );
+}
+
 function fmtGameLine(g, viewerSide, leagueData) {
   const isViewerA = sameTeam(g.teamA, viewerSide, leagueData);
-  const myScore = isViewerA ? g.scoreA : g.scoreB;
-  const oppScore = isViewerA ? g.scoreB : g.scoreA;
   const opp = isViewerA ? g.teamB : g.teamA;
 
   let icon = '⚪';
@@ -62,6 +71,17 @@ function fmtGameLine(g, viewerSide, leagueData) {
     icon = sameTeam(g.winner, viewerSide, leagueData) ? '✅' : '❌';
   }
 
+  // Placeholder 1-0 game → show winner only.
+  if (isPlaceholderScore(g)) {
+    let result = '—';
+    if (g.winner) {
+      result = sameTeam(g.winner, viewerSide, leagueData) ? 'Won' : 'Lost';
+    }
+    return `${icon} **${result}** vs ${opp} · *${g.year} ${fmtWeek(g)}*`;
+  }
+
+  const myScore = isViewerA ? g.scoreA : g.scoreB;
+  const oppScore = isViewerA ? g.scoreB : g.scoreA;
   const ms = myScore == null ? '?' : myScore;
   const os = oppScore == null ? '?' : oppScore;
   return `${icon} **${ms}-${os}** vs ${opp} · *${g.year} ${fmtWeek(g)}*`;
@@ -88,6 +108,7 @@ function biggestWin(games, viewerSide, leagueData) {
   for (const g of games) {
     if (g.scoreA == null || g.scoreB == null || !g.winner) continue;
     if (!sameTeam(g.winner, viewerSide, leagueData)) continue;
+    if (isPlaceholderScore(g)) continue; // synthetic 1-0; no real margin
     const margin = Math.abs(g.scoreA - g.scoreB);
     if (!best || margin > best.margin) best = { game: g, margin };
   }
@@ -99,6 +120,7 @@ function biggestLoss(games, viewerSide, leagueData) {
   for (const g of games) {
     if (g.scoreA == null || g.scoreB == null || !g.winner) continue;
     if (sameTeam(g.winner, viewerSide, leagueData)) continue;
+    if (isPlaceholderScore(g)) continue; // synthetic 1-0; no real margin
     const margin = Math.abs(g.scoreA - g.scoreB);
     if (!worst || margin > worst.margin) worst = { game: g, margin };
   }
