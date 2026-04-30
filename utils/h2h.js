@@ -41,7 +41,7 @@ const overrides = require('./h2hOverrides');
 // (/h2h, /streaks, /familytree) still works if .env ever gets reset.
 const H2H_SHEET_ID_DEFAULT = '1bXibTnivjhlWZVbt2RpbALuxriFDWgdR8pscPf9zLhw';
 const H2H_TAB_DEFAULT = 'Stats';
-const H2H_GID_DEFAULT = '495263146';
+const H2H_GID_DEFAULT = '501304841';
 
 const SHEET_ID =
   process.env.H2H_SHEET_ID ||
@@ -155,20 +155,26 @@ function parseWeekCell(raw) {
   }
 
   const lower = v.toLowerCase();
-  if (/(^|\W)ccg(\W|$)|conference.*(title|champ)/.test(lower)) {
-    return { week: 13, weekLabel: 'Conference Championships' };
-  }
-  if (/bowl/.test(lower)) {
-    return { week: 14, weekLabel: 'Bowl Week' };
-  }
-  if (/round of 16|quarterfinal|quarters?\b/.test(lower)) {
-    return { week: 15, weekLabel: 'Quarterfinals' };
+  // National championship FIRST — must say "national" or "natty" so it
+  // doesn't swallow conference title games. Order matters here.
+  if (/national\s*(champ|title)|natty\b/.test(lower)) {
+    return { week: 17, weekLabel: 'National Championship' };
   }
   if (/semifinal|semis?\b/.test(lower)) {
     return { week: 16, weekLabel: 'Semifinals' };
   }
-  if (/national champ|title game|natty/.test(lower)) {
-    return { week: 17, weekLabel: 'National Championship' };
+  if (/round of 16|quarterfinal|quarters?\b/.test(lower)) {
+    return { week: 15, weekLabel: 'Quarterfinals' };
+  }
+  if (/bowl/.test(lower)) {
+    return { week: 14, weekLabel: 'Bowl Week' };
+  }
+  // Conference championship — explicit ccg / conference title / "<conf>
+  // title game" / "<conf> championship". Catches ACC/SEC/B1G/Big 12/Pac-12/
+  // AAC/MWC/Sun Belt/etc. Runs LAST among the playoff/title patterns so
+  // National Championship has already been peeled off above.
+  if (/(^|\W)ccg(\W|$)|conference\s*(title|champ)|title\s*game|championship/.test(lower)) {
+    return { week: 13, weekLabel: 'Conference Championships' };
   }
 
   return { week: null, weekLabel: v };
