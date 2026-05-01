@@ -27,6 +27,10 @@ const {
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
+const {
+  fetchCurrentRankings,
+  findRankForTeam,
+} = require('../utils/currentRankings');
 
 const INFO_SHEET_ID =
   process.env.NZCFL_INFO_SHEET_ID ||
@@ -378,6 +382,7 @@ module.exports = {
 
     let scholarshipInfo = null;
     let recruitingInfo = null;
+    let currentRank = null;
 
     try {
       scholarshipInfo = await getScholarshipInfo({
@@ -386,6 +391,15 @@ module.exports = {
       }).catch(() => null);
     } catch (err) {
       console.error('teamstats scholarship fetch error:', err);
+    }
+
+    // Current Top-25 rank (from the same sheet /rankings reads).
+    // Soft-fails so a sheet outage never blocks the rest of the embed.
+    try {
+      const { entries } = await fetchCurrentRankings();
+      currentRank = findRankForTeam(entries, team);
+    } catch (err) {
+      console.error('teamstats current-rankings fetch error:', err);
     }
 
     try {
@@ -475,8 +489,10 @@ module.exports = {
 
     const recruitingValue = `${recruitingLine1}\n${recruitingLine2}`;
 
+    const rankPrefix = currentRank ? `#${currentRank} ` : '';
+
     const embed = new EmbedBuilder()
-      .setTitle(`${getTeamName(team)} (${team.abbrev})`)
+      .setTitle(`${rankPrefix}${getTeamName(team)} (${team.abbrev})`)
       .setColor(0x1a6b3c)
       .addFields(
         {

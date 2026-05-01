@@ -17,6 +17,8 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
 const {
   loadRankingsHistory,
+  findLastRankedColumn,
+  formatColumnLabel,
 } = require('../utils/rankingsHistory');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
@@ -108,55 +110,6 @@ async function fetchStatsRows() {
   }
 
   return { rows: null, tab: '' };
-}
-
-// ---------- historical data tab (for "Last Ranked") ----------
-
-function findLastRankedDisplay(historicalRows, team) {
-  if (!Array.isArray(historicalRows) || historicalRows.length < 2) return null;
-
-  const headerRow = historicalRows[0] || [];
-  const rowStart = 1;
-  const rowEnd = Math.min(historicalRows.length, 26);
-  const maxCols = Math.max(
-    headerRow.length,
-    ...historicalRows.slice(rowStart, rowEnd).map((row) => row?.length || 0)
-  );
-
-  let matchCol = -1;
-  for (let col = maxCols - 1; col >= 0; col--) {
-    for (let row = rowStart; row < rowEnd; row++) {
-      if (teamMatchesCell(historicalRows[row]?.[col], team)) {
-        matchCol = col;
-        break;
-      }
-    }
-    if (matchCol >= 0) break;
-  }
-
-  if (matchCol < 0) return null;
-
-  const rawLabel = String(headerRow[matchCol] || '').trim();
-  if (!rawLabel) return null;
-
-  let year = '';
-  for (let col = matchCol; col >= 0; col--) {
-    const header = String(headerRow[col] || '').trim();
-    const fullYearMatch = header.match(/\b(20\d{2})\s+preseason\b/i);
-    if (fullYearMatch) {
-      year = fullYearMatch[1];
-      break;
-    }
-  }
-
-  if (!year) {
-    const inlineYearMatch = rawLabel.match(/\b(20\d{2})\b/);
-    if (inlineYearMatch) year = inlineYearMatch[1];
-  }
-
-  if (!year) return `**${rawLabel}**`;
-  if (rawLabel.includes(year)) return `**${rawLabel}**`;
-  return `**${year} ${rawLabel}**`;
 }
 
 // ---------- layout parsing ----------
@@ -434,7 +387,10 @@ module.exports = {
 
     const [{ rows }, rankingsHistory] = await Promise.all([
       fetchStatsRows(),
-      loadRankingsHistory().catch(() => null),
+      loadRankingsHistory().catch((err) => {
+        console.error('rankingstats: loadRankingsHistory failed:', err);
+        return null;
+      }),
     ]);
 
     if (!rows) {
@@ -450,9 +406,21 @@ module.exports = {
       );
     }
 
-    const lastRankedDisplay = rankingsHistory?.rows
-      ? (findLastRankedDisplay(rankingsHistory.rows, team) || '—')
-      : '—';
+    // Last Ranked uses the shared rankingsHistory helpers so we get
+    // proper year inheritance + phase ordering (Preseason < Week < CCG <
+    // Playoffs) instead of just walking columns right-to-left.
+    let lastRankedDisplay = '—';
+    if (rankingsHistory?.rows && rankingsHistory.columnIndex?.length) {
+      const lastCol = findLastRankedColumn(
+        rankingsHistory.rows,
+        team,
+        rankingsHistory.columnIndex
+      );
+      if (lastCol) {
+        const label = formatColumnLabel(lastCol);
+        if (label) lastRankedDisplay = `**${label}**`;
+      }
+    }
 
     const embed = new EmbedBuilder()
       .setTitle(`Historical Ranking Stats — ${getTeamName(team)}`)
