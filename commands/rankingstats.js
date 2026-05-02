@@ -15,11 +15,6 @@ const {
 } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
-const {
-  loadRankingsHistory,
-  findLastRankedColumn,
-  formatColumnLabel,
-} = require('../utils/rankingsHistory');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
@@ -163,6 +158,7 @@ function findMetricBlocks(headers) {
     weeksRankedNumber1: null,
     totalWeeksTop10: null,
     bestStreakByTeam: null,
+    lastRanked: null,
   };
 
   for (let i = 0; i < h.length; i++) {
@@ -209,6 +205,14 @@ function findMetricBlocks(headers) {
       };
       continue;
     }
+
+    // Last Ranked  — new block on the Stats tab (around AE:AG).
+    // Header is "Last Ranked" with the team column to its left, and the
+    // cell value is already a formatted label like "2060 Playoff Rankings".
+    if (cur === 'last ranked' || cur === 'last ranked in') {
+      blocks.lastRanked = { teamCol: tc, valueCol: i };
+      continue;
+    }
   }
 
   return blocks;
@@ -232,6 +236,7 @@ function parseStatsTab(rows, team) {
     bestStreakByTeam: null,
     bestStreakActive: null,
     bestStreakSeasons: null,
+    lastRanked: null,
   };
 
   // Since each block is its own ranked list, a team's row varies by block.
@@ -318,6 +323,19 @@ function parseStatsTab(rows, team) {
         );
       }
     }
+
+    // Last Ranked  — pull the cell value as text (already formatted on
+    // the sheet, e.g. "2060 Playoff Rankings").
+    if (
+      blocks.lastRanked &&
+      result.lastRanked === null &&
+      teamMatchesCell(row[blocks.lastRanked.teamCol], team)
+    ) {
+      const raw = String(row[blocks.lastRanked.valueCol] || '').trim();
+      if (raw && raw !== '#N/A') {
+        result.lastRanked = raw;
+      }
+    }
   }
 
   const foundAnything = Object.values(result).some((v) => v !== null);
@@ -385,13 +403,7 @@ module.exports = {
       abbrev = String(team.abbrev || '').toUpperCase().trim();
     }
 
-    const [{ rows }, rankingsHistory] = await Promise.all([
-      fetchStatsRows(),
-      loadRankingsHistory().catch((err) => {
-        console.error('rankingstats: loadRankingsHistory failed:', err);
-        return null;
-      }),
-    ]);
+    const { rows } = await fetchStatsRows();
 
     if (!rows) {
       return interaction.editReply(
@@ -406,21 +418,12 @@ module.exports = {
       );
     }
 
-    // Last Ranked uses the shared rankingsHistory helpers so we get
-    // proper year inheritance + phase ordering (Preseason < Week < CCG <
-    // Playoffs) instead of just walking columns right-to-left.
-    let lastRankedDisplay = '—';
-    if (rankingsHistory?.rows && rankingsHistory.columnIndex?.length) {
-      const lastCol = findLastRankedColumn(
-        rankingsHistory.rows,
-        team,
-        rankingsHistory.columnIndex
-      );
-      if (lastCol) {
-        const label = formatColumnLabel(lastCol);
-        if (label) lastRankedDisplay = `**${label}**`;
-      }
-    }
+    // Last Ranked is now read directly from the Stats tab block — the
+    // sheet already publishes a formatted label per team (e.g.
+    // "2060 Playoff Rankings"), so no historical scan needed.
+    const lastRankedDisplay = stats.lastRanked
+      ? `**${stats.lastRanked}**`
+      : '—';
 
     const embed = new EmbedBuilder()
       .setTitle(`Historical Ranking Stats — ${getTeamName(team)}`)
