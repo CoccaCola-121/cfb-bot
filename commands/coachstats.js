@@ -11,6 +11,7 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
 const { getNatTitleYears } = require('../utils/natTitles');
+const { isLive } = require('../utils/seasonMode');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -241,7 +242,12 @@ module.exports = {
     // Patch current season live record into resume total
     // The resume sheet Total column won't include the in-progress season,
     // so we add the current team's live record from the Football GM JSON.
+    // In offseason mode the resume sheet is authoritative — the FGM export
+    // is stale or already advanced past the natty — so we skip the patch
+    // entirely and trust whatever finalized record the sheet shows.
+    const liveMode = isLive(leagueData);
     function patchCurrentSeason(coach, resume) {
+      if (!liveMode) return resume;
       if (!leagueData || !currentSeason || !resume) return resume;
       const leagueTeam = findTeamByName(leagueData, coach.team);
       if (!leagueTeam) return resume;
@@ -279,11 +285,19 @@ module.exports = {
     // Order matters: first patch the live current-season W/L on top of the
     // resume sheet, then apply this coach's manual /recordupdate overrides
     // so they hard-overwrite the affected year (and re-derive career totals).
+    //
+    // We also re-derive `years` from the resume history (count of years the
+    // coach has a record or team filled in) so the "X seasons coached" line
+    // auto-grows when a new finalized year lands in the sheet, instead of
+    // depending on someone manually bumping the Coach tab's Years column.
+    // Falls back to the CSV value if the resume sheet has no history.
     const coaches = csvCoaches.map(c => {
       const rawResume = resumeMap.get(normalize(c.coach)) || null;
       const patched   = patchCurrentSeason(c, rawResume);
       const finalResume = applyOverridesToResume(patched, c.coach);
-      return { ...c, resume: finalResume };
+      const derivedYears = finalResume?.history?.length || 0;
+      const years = derivedYears > 0 ? derivedYears : c.years;
+      return { ...c, years, resume: finalResume };
     });
 
     const ranked = computeRanks(coaches);
