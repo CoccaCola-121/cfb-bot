@@ -91,19 +91,36 @@ function findRecruitCommit(recruits, player) {
   return loose || null;
 }
 
-// Given a commit string from the sheet (e.g. "Michigan State"), find the
-// matching active team in the league and return its display name.
+// Walk-on suffix used on the recruiting sheet: e.g. "Toledo(WO)" with no
+// space between the school and the parens. Strip it before matching so the
+// player still gets resolved to the real team (and its logo). Tolerates an
+// optional space as well, just to be safe.
+const WO_SUFFIX_RE = /\s*\(WO\)\s*$/i;
+
+function stripWalkOnSuffix(raw) {
+  return String(raw || '').trim().replace(WO_SUFFIX_RE, '').trim();
+}
+
+// Given a commit string from the sheet (e.g. "Michigan State", "Toledo(WO)"),
+// find the matching active team in the league. Returns both a display name
+// and the matched team (so callers can grab a logo, etc.).
 function resolveCommitDisplay(leagueData, commitString) {
   const raw = String(commitString || '').trim();
   if (!raw) return null;
 
+  const cleaned = stripWalkOnSuffix(raw);
+  if (!cleaned) return null;
+
   const matched = (leagueData.teams || []).find(
-    (t) => !t.disabled && matchesTeam(raw, t)
+    (t) => !t.disabled && matchesTeam(cleaned, t)
   );
   if (matched) {
-    return `${getTeamName(matched)} (${matched.abbrev})`;
+    return {
+      display: `${getTeamName(matched)} (${matched.abbrev})`,
+      team: matched,
+    };
   }
-  return raw;
+  return { display: cleaned, team: null };
 }
 
 function getCurrentAge(player, currentSeason) {
@@ -429,6 +446,7 @@ module.exports = {
     // For Draft Prospects, look up their commit in the NZCFL Info sheet. A
     // failed lookup just means "commit is unknown yet", not an error.
     let commitDisplay = null;
+    let commitTeam = null;
     if (isDraftProspect) {
       try {
         const season = Number(currentSeason);
@@ -438,7 +456,11 @@ module.exports = {
           const recruits = toRecruitObjects(rows);
           const found = findRecruitCommit(recruits, player);
           if (found && found.commit) {
-            commitDisplay = resolveCommitDisplay(leagueData, found.commit);
+            const resolved = resolveCommitDisplay(leagueData, found.commit);
+            if (resolved) {
+              commitDisplay = resolved.display;
+              commitTeam = resolved.team;
+            }
           }
         }
       } catch (err) {
@@ -459,7 +481,11 @@ module.exports = {
       teamDisplay = 'Free Agent / N/A';
     }
 
-    const logoUrl = team ? getTeamLogoUrl(team) : null;
+    // Show the player's current team's logo, or — for Draft Prospects who
+    // are committed to a real league team — that team's logo, so committed
+    // recruits get the same treatment as rostered players.
+    const logoTeam = team || commitTeam;
+    const logoUrl = logoTeam ? getTeamLogoUrl(logoTeam) : null;
 
     // DP players get a stripped-down profile: just commit status, position,
     // home state, previous teams (if any). No Jersey / Age / Grade / stats.
