@@ -127,15 +127,20 @@ function parseResumeSheet(rows) {
 }
 
 // ── Ranking formula ──────────────────────────────────────────
-// Wins + win% dominate. Titles matter heavily. Promises ignored.
+// Sustained excellence (win %) is the primary signal, with raw wins
+// rewarding longevity, championships providing big bonuses, and bowl
+// wins / playoff appearances giving meaningful but smaller bumps.
+// Calibration target: a .744 / 58-20 coach with 1 PA + 3 bowl wins
+// should be clearly ahead of a .505 / 52-51 coach with 1 CC + 2 BW.
 function computeScore(c, resume) {
   if (!resume || c.years < 1) return 0;
-  return (resume.wins  * 1.0)
-       + (resume.pct   * 80)
-       + (c.natTitles  * 120)
-       + (c.confTitles * 18)
-       + (c.divTitles  * 5)
-       + (c.playoffs   * 1.5);
+  return (resume.wins   * 1.0)
+       + (resume.pct    * 120)
+       + (c.natTitles   * 150)
+       + (c.confTitles  * 25)
+       + (c.divTitles   * 8)
+       + (c.playoffs    * 8)
+       + (c.bowlWins    * 4);
 }
 
 function computeRanks(coaches) {

@@ -19,6 +19,7 @@ const {
   getTeamName,
 } = require('../utils/data');
 const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
+const { isLive } = require('../utils/seasonMode');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -186,16 +187,21 @@ function parseResumeSheet(rows) {
 }
 
 // ── Formula ──────────────────────────────────────────────────
-// Heavily weighted toward wins, win%, CCG titles, nat titles.
-// Promises kept/failed: tiny nudge only.
+// Sustained excellence (win %) is the primary signal, with raw wins
+// rewarding longevity, championships providing big bonuses, and bowl
+// wins / playoff appearances giving meaningful but smaller bumps.
+// Calibration target: a .744 / 58-20 coach with 1 PA + 3 bowl wins
+// should be clearly ahead of a .505 / 52-51 coach with 1 CC + 2 BW.
+// Must stay in sync with /coachstats.
 function computeScore(c, record) {
   if (!record || c.years < 1) return 0;
-  return (record.wins  * 1.0)
-       + (record.pct   * 80)
-       + (c.natTitles  * 120)
-       + (c.confTitles * 18)
-       + (c.divTitles  * 5)
-       + (c.playoffs   * 1.5);
+  return (record.wins   * 1.0)
+       + (record.pct    * 120)
+       + (c.natTitles   * 150)
+       + (c.confTitles  * 25)
+       + (c.divTitles   * 8)
+       + (c.playoffs    * 8)
+       + (c.bowlWins    * 4);
 }
 
 module.exports = {
@@ -239,16 +245,33 @@ module.exports = {
     // seasons, so /teamstats & /coachstats would otherwise show more wins).
     // Then apply the coach's manual /recordupdate overrides on top so any
     // half-season adjustments are reflected on the leaderboard too.
+    //
+    // In offseason mode the resume sheet is authoritative — the FGM export
+    // is stale or has advanced past the natty — so we skip the live patch
+    // and trust whatever finalized record the sheet shows. Matches the
+    // gate in /coachstats.
+    //
+    // We also re-derive `years` from the resume history (count of years
+    // the coach has a record on the resume sheet) so the leaderboard's
+    // year-based sort and formula gate auto-grow when a finalized year
+    // lands in the sheet, instead of depending on someone manually
+    // bumping the Coach tab's Years column.
+    const liveMode = isLive(leagueData);
     const enriched = coaches.map(c => {
       const baseRecord  = recordMap.get(normalize(c.coach)) || null;
-      const livePatched = patchRecordWithCurrentSeason(leagueData, c, baseRecord);
+      const livePatched = liveMode
+        ? patchRecordWithCurrentSeason(leagueData, c, baseRecord)
+        : baseRecord;
       const finalRecord = applyOverridesToLeaderboardRecord(
         livePatched,
         c.coach,
         baseRecord?.history || null
       );
+      const derivedYears = finalRecord?.history?.length || 0;
+      const years = derivedYears > 0 ? derivedYears : c.years;
       return {
         ...c,
+        years,
         record: finalRecord,
       };
     });
