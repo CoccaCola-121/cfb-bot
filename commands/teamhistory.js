@@ -18,6 +18,7 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
 const { getUserTeam } = require('../utils/userMap');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
+const { isLive } = require('../utils/seasonMode');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
@@ -239,7 +240,12 @@ module.exports = {
     const allRows = parseResumeRows(resumeRows);
     let teamRows = allRows.filter((r) => r.team && teamAliasesNorm.has(normalize(r.team)));
 
-    teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason);
+    // In live mode, override the current-season row from the FGM export so
+    // the bot reflects mid-season W/L. In offseason mode, the resume sheet
+    // already has the finalized current-season record — leave it alone.
+    if (isLive(leagueData)) {
+      teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason);
+    }
 
     if (!teamRows.length) {
       return interaction.editReply(`*No coaching history found for ${teamLabel} on the resume sheet yet.*`);
