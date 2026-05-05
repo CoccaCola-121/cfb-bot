@@ -33,6 +33,8 @@ const {
   findTeamByName,
 } = require('../utils/data');
 
+const TRACKED_SINCE_SEASON = 2025;
+
 function displayTeamAbbrev(value, leagueData) {
   const team = findMatchingTeam(leagueData, value);
   return team?.abbrev || String(value || '').trim();
@@ -213,7 +215,7 @@ async function teamMode(interaction, opponent) {
     .setTitle(`🏈 ${myName} vs ${oppLabel}`)
     .setColor(0x2980b9)
     .setDescription(
-      `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}`,
+      `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}\n*H2H tracking starts in ${TRACKED_SINCE_SEASON}.*`,
     )
     .addFields(
       {
@@ -223,7 +225,7 @@ async function teamMode(interaction, opponent) {
       { name: 'Notable', value: trimField(notable || '—') },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · csv ${counts.csv} · live ${counts.json} · overrides ${counts.override}`,
+      text: `${games.length} game${games.length === 1 ? '' : 's'} · tracked since ${TRACKED_SINCE_SEASON} · csv ${counts.csv} · live ${counts.json} · overrides ${counts.override}`,
     })
     .setTimestamp();
 
@@ -324,7 +326,7 @@ async function coachMode(interaction, opponent) {
     .setTitle(`🏈 ${myCoach} vs ${opponentLabel}  ${titleSuffix}`)
     .setColor(useCoach ? 0x9b59b6 : 0x2980b9)
     .setDescription(
-      `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}`,
+      `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}\n*H2H tracking starts in ${TRACKED_SINCE_SEASON}.*`,
     )
     .addFields(
       {
@@ -334,7 +336,7 @@ async function coachMode(interaction, opponent) {
       { name: 'Notable', value: trimField(notable || '—') },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · csv ${counts.csv} · live ${counts.json} · overrides ${counts.override}`,
+      text: `${games.length} game${games.length === 1 ? '' : 's'} · tracked since ${TRACKED_SINCE_SEASON} · csv ${counts.csv} · live ${counts.json} · overrides ${counts.override}`,
     })
     .setTimestamp();
 

@@ -3,13 +3,14 @@
 //
 // /streaks [vs:<X>] [as:team|coach]
 //
-//   as:team  (default) → your linked team's all-time streaks per opponent
+//   as:team  (default) → your linked team's active streaks per opponent
 //   as:coach           → your coach career's streaks (across every team
 //                         you've coached, attributed via Resume sheet
 //                         + h2hOverrides)
 //
 //   vs:<opponent>      → (optional) restrict to a single opponent
 //                         (matches team name or coach handle)
+//   active:no          → show all-time longest streaks instead of active ones
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -67,9 +68,30 @@ function sortRuns(runs) {
   });
 }
 
+function isLaterStreak(a, b) {
+  if ((a?.end?.year || 0) !== (b?.end?.year || 0)) {
+    return (a?.end?.year || 0) > (b?.end?.year || 0);
+  }
+  if ((a?.end?.week || 0) !== (b?.end?.week || 0)) {
+    return (a?.end?.week || 0) > (b?.end?.week || 0);
+  }
+  return false;
+}
+
+function latestRunsByOpponent(runs) {
+  const latest = new Map();
+  for (const run of runs || []) {
+    const current = latest.get(run.opponent);
+    if (!current || isLaterStreak(run, current)) {
+      latest.set(run.opponent, run);
+    }
+  }
+  return [...latest.values()];
+}
+
 // ─── Mode handlers ──────────────────────────────────────────
 
-async function teamMode(interaction, vs) {
+async function teamMode(interaction, vs, activeOnly) {
   const leagueData = getLatestLeagueData();
   const myTeam = leagueData
     ? await getUserTeam(leagueData, interaction.user.id)
@@ -106,7 +128,8 @@ async function teamMode(interaction, vs) {
     );
   }
 
-  const runs = opponentStreaks(games, subjectFn, opponentFn);
+  const allRuns = opponentStreaks(games, subjectFn, opponentFn);
+  const runs = activeOnly ? latestRunsByOpponent(allRuns) : allRuns;
   const wins = sortRuns(runs.filter((r) => r.type === 'win')).slice(0, 5);
   const losses = sortRuns(runs.filter((r) => r.type === 'loss')).slice(0, 5);
 
@@ -114,15 +137,18 @@ async function teamMode(interaction, vs) {
   const lossText = losses.length ? losses.map(fmtStreakLine).join('\n') : null;
 
   const filterLabel = vs ? displayTeamAbbrev(vs, leagueData) : null;
+  const modeLabel = activeOnly ? 'Active Streaks' : 'Streaks';
+  const winHeader = activeOnly ? '🟢 Active Win Streaks' : '🟢 Top 5 Win Streaks';
+  const lossHeader = activeOnly ? '🔴 Active Loss Streaks' : '🔴 Top 5 Loss Streaks';
   const embed = new EmbedBuilder()
-    .setTitle(`📈 ${myName} · Streaks${filterLabel ? ` vs ${filterLabel}` : ''}`)
+    .setTitle(`📈 ${myName} · ${modeLabel}${filterLabel ? ` vs ${filterLabel}` : ''}`)
     .setColor(0x2980b9)
     .addFields(
-      { name: '🟢 Top 5 Win Streaks',  value: trimField(winText)  },
-      { name: '🔴 Top 5 Loss Streaks', value: trimField(lossText) },
+      { name: winHeader,  value: trimField(winText)  },
+      { name: lossHeader, value: trimField(lossText) },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · ${runs.length} streak${runs.length === 1 ? '' : 's'} tracked`,
+      text: `${games.length} game${games.length === 1 ? '' : 's'} · ${runs.length} ${activeOnly ? 'active ' : ''}streak${runs.length === 1 ? '' : 's'} tracked`,
     })
     .setTimestamp();
 
@@ -134,7 +160,7 @@ async function teamMode(interaction, vs) {
   return interaction.editReply({ embeds: [embed] });
 }
 
-async function coachMode(interaction, vs) {
+async function coachMode(interaction, vs, activeOnly) {
   const leagueData = getLatestLeagueData();
   const myCoach = getUserCoachName(interaction.user.id);
 
@@ -189,7 +215,8 @@ async function coachMode(interaction, vs) {
 
   const subjectFn = coachSubjectFn();
   const opponentFn = (g) => g.__opponentLabel;
-  const runs = opponentStreaks(enriched, subjectFn, opponentFn);
+  const allRuns = opponentStreaks(enriched, subjectFn, opponentFn);
+  const runs = activeOnly ? latestRunsByOpponent(allRuns) : allRuns;
 
   const wins = sortRuns(runs.filter((r) => r.type === 'win')).slice(0, 5);
   const losses = sortRuns(runs.filter((r) => r.type === 'loss')).slice(0, 5);
@@ -198,15 +225,18 @@ async function coachMode(interaction, vs) {
   const lossText = losses.length ? losses.map(fmtStreakLine).join('\n') : null;
 
   const filterSuffix = vs ? ` vs ${opponentFnLabel(vs, leagueData, enriched)}` : '';
+  const titleLabel = activeOnly ? 'Career Active Streaks' : 'Career Streaks';
+  const winHeader = activeOnly ? '🟢 Active Win Streaks' : '🟢 Top 5 Win Streaks';
+  const lossHeader = activeOnly ? '🔴 Active Loss Streaks' : '🔴 Top 5 Loss Streaks';
   const embed = new EmbedBuilder()
-    .setTitle(`📈 ${myCoach} · Career Streaks${filterSuffix}`)
+    .setTitle(`📈 ${myCoach} · ${titleLabel}${filterSuffix}`)
     .setColor(0x9b59b6)
     .addFields(
-      { name: '🟢 Top 5 Win Streaks',  value: trimField(winText)  },
-      { name: '🔴 Top 5 Loss Streaks', value: trimField(lossText) },
+      { name: winHeader,  value: trimField(winText)  },
+      { name: lossHeader, value: trimField(lossText) },
     )
     .setFooter({
-      text: `${enriched.length} game${enriched.length === 1 ? '' : 's'} · ${runs.length} streak${runs.length === 1 ? '' : 's'} tracked`,
+      text: `${enriched.length} game${enriched.length === 1 ? '' : 's'} · ${runs.length} ${activeOnly ? 'active ' : ''}streak${runs.length === 1 ? '' : 's'} tracked`,
     })
     .setTimestamp();
 
@@ -218,7 +248,7 @@ async function coachMode(interaction, vs) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('streaks')
-    .setDescription('Top 5 longest win/loss streaks per opponent.')
+    .setDescription('Active streaks per opponent by default. Use active:no for all-time longest streaks.')
     .addStringOption((o) =>
       o
         .setName('vs')
@@ -234,6 +264,12 @@ module.exports = {
           { name: 'team',  value: 'team'  },
           { name: 'coach', value: 'coach' },
         ),
+    )
+    .addBooleanOption((o) =>
+      o
+        .setName('active')
+        .setDescription('Defaults to yes. Set to no to show all-time longest streaks instead.')
+        .setRequired(false),
     ),
 
   async execute(interaction) {
@@ -241,12 +277,14 @@ module.exports = {
 
     const vs = interaction.options.getString('vs') || null;
     const as = interaction.options.getString('as') || 'team';
+    const active = interaction.options.getBoolean('active');
+    const activeOnly = active !== false;
 
     try {
       if (as === 'coach') {
-        return await coachMode(interaction, vs);
+        return await coachMode(interaction, vs, activeOnly);
       }
-      return await teamMode(interaction, vs);
+      return await teamMode(interaction, vs, activeOnly);
     } catch (err) {
       console.error('[streaks] failed:', err);
       return interaction.editReply(
