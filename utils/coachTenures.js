@@ -20,6 +20,8 @@ const RESUME_GID =
 const RESUME_TAB = process.env.NZCFL_RESUME_TAB || 'Resume';
 
 let cache = null;
+let coachByTeamYearCache = null;
+const attributionCache = new Map();
 
 // ---------- helpers ----------
 
@@ -83,6 +85,8 @@ async function loadResume() {
   }
 
   cache = result;
+  coachByTeamYearCache = null;
+  attributionCache.clear();
   return result;
 }
 
@@ -115,26 +119,41 @@ function canonicalTeamKey(value) {
 async function getCoachForTeamYear(team, year) {
   const rows = await loadResume();
   const targetTeam = canonicalTeamKey(team);
+  const targetYear = Number(year);
 
-  const match = rows.find(
-    (r) =>
-      r.year === year &&
-      r.team &&
-      canonicalTeamKey(r.team) === targetTeam
-  );
+  if (!coachByTeamYearCache) {
+    coachByTeamYearCache = new Map();
+    for (const row of rows) {
+      if (!row?.team || !Number.isFinite(Number(row.year))) continue;
+      const key = `${Number(row.year)}|${canonicalTeamKey(row.team)}`;
+      if (!coachByTeamYearCache.has(key)) {
+        coachByTeamYearCache.set(key, row.coach || null);
+      }
+    }
+  }
 
-  return match ? match.coach : null;
+  return coachByTeamYearCache.get(`${targetYear}|${targetTeam}`) || null;
 }
 
 async function coachAttribution(team, year, week) {
+  const cacheKey = `${year}|${week}|${canonicalTeamKey(team)}`;
+  if (attributionCache.has(cacheKey)) {
+    return attributionCache.get(cacheKey);
+  }
+
   // 1. override FIRST
   const override = overrides.attributeCoach.find(
     (o) => o.team === team && o.year === year && o.week === week
   );
-  if (override) return override.coach;
+  if (override) {
+    attributionCache.set(cacheKey, override.coach);
+    return override.coach;
+  }
 
   // 2. fallback
-  return getCoachForTeamYear(team, year);
+  const coach = await getCoachForTeamYear(team, year);
+  attributionCache.set(cacheKey, coach);
+  return coach;
 }
 
 module.exports = {
