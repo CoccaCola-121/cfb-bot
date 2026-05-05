@@ -40,6 +40,11 @@ function displayTeamAbbrev(value, leagueData) {
   return team?.abbrev || String(value || '').trim();
 }
 
+function displayTeamHeader(value, leagueData) {
+  const team = findMatchingTeam(leagueData, value);
+  return team ? getTeamName(team) : String(value || '').trim();
+}
+
 // ─── Tiny formatters ────────────────────────────────────────
 
 function fmtPct(p) {
@@ -135,22 +140,6 @@ function biggestLoss(games, viewerSide, leagueData) {
   return worst;
 }
 
-function longestGap(games) {
-  if (games.length < 2) return null;
-  const sorted = [...games].sort(
-    (a, b) => a.year - b.year || a.week - b.week,
-  );
-  let best = null;
-  for (let i = 1; i < sorted.length; i++) {
-    const yrs = sorted[i].year - sorted[i - 1].year;
-    if (!best || yrs > best.yrs) {
-      best = { yrs, from: sorted[i - 1], to: sorted[i] };
-    }
-  }
-  if (!best) return null;
-  return `${best.from.year} → ${best.to.year} *(${best.yrs} season${best.yrs === 1 ? '' : 's'})*`;
-}
-
 function compactGameRef(g) {
   const margin = Math.abs((g.scoreA ?? 0) - (g.scoreB ?? 0));
   return `${margin}-pt margin · ${g.year} ${fmtWeek(g)}`;
@@ -175,6 +164,7 @@ async function teamMode(interaction, opponent) {
     (leagueData ? findTeamByName(leagueData, opponent) : null) ||
     findMatchingTeam(leagueData, opponent);
   const oppLabel = oppTeam ? oppTeam.abbrev : opponent;
+  const oppHeader = oppTeam ? getTeamName(oppTeam) : opponent;
 
   const all = await loadAllGames();
   const games = all.filter(
@@ -203,16 +193,13 @@ async function teamMode(interaction, opponent) {
 
   const win  = biggestWin(games, myName, leagueData);
   const loss = biggestLoss(games, myName, leagueData);
-  const gap  = longestGap(games);
-
   const notable = [
     win  ? `🏆 **Biggest win:** ${win.game.scoreA}-${win.game.scoreB} *(${compactGameRef(win.game)})*` : null,
     loss ? `💀 **Worst loss:** ${loss.game.scoreA}-${loss.game.scoreB} *(${compactGameRef(loss.game)})*` : null,
-    gap  ? `⏳ **Longest gap:** ${gap}` : null,
   ].filter(Boolean).join('\n');
 
   const embed = new EmbedBuilder()
-    .setTitle(`🏈 ${myName} vs ${oppLabel}`)
+    .setTitle(`🏈 ${myName} vs ${oppHeader}`)
     .setColor(0x2980b9)
     .setDescription(
       `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}\n*H2H tracking starts in ${TRACKED_SINCE_SEASON}.*`,
@@ -293,6 +280,13 @@ async function coachMode(interaction, opponent) {
           (games[0]?.__opponentTeam || opponent),
           leagueData,
         );
+  const opponentHeader =
+    useCoach
+      ? opponent
+      : displayTeamHeader(
+          (games[0]?.__opponentTeam || opponent),
+          leagueData,
+        );
 
   if (!games.length) {
     return interaction.editReply(
@@ -313,17 +307,14 @@ async function coachMode(interaction, opponent) {
   const lastSubjectTeam = games[games.length - 1].__subjectTeam;
   const win  = biggestWin(games, lastSubjectTeam, leagueData);
   const loss = biggestLoss(games, lastSubjectTeam, leagueData);
-  const gap  = longestGap(games);
-
   const notable = [
     win  ? `🏆 **Biggest win:** ${win.game.scoreA}-${win.game.scoreB} *(${compactGameRef(win.game)})*` : null,
     loss ? `💀 **Worst loss:** ${loss.game.scoreA}-${loss.game.scoreB} *(${compactGameRef(loss.game)})*` : null,
-    gap  ? `⏳ **Longest gap:** ${gap}` : null,
   ].filter(Boolean).join('\n');
 
   const titleSuffix = useCoach ? '(coach vs coach)' : '(coach vs team)';
   const embed = new EmbedBuilder()
-    .setTitle(`🏈 ${myCoach} vs ${opponentLabel}  ${titleSuffix}`)
+    .setTitle(`🏈 ${myCoach} vs ${opponentHeader}  ${titleSuffix}`)
     .setColor(useCoach ? 0x9b59b6 : 0x2980b9)
     .setDescription(
       `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}\n*H2H tracking starts in ${TRACKED_SINCE_SEASON}.*`,
