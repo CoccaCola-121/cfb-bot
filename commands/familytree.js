@@ -16,6 +16,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { findMatchingTeam } = require('../utils/sheets');
 
 const {
   loadAllGames,
@@ -36,6 +37,11 @@ const {
 } = require('../utils/data');
 
 const MIN_GAMES = 3;
+
+function displayTeamAbbrev(value, leagueData) {
+  const team = findMatchingTeam(leagueData, value);
+  return team?.abbrev || String(value || '').trim();
+}
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -108,7 +114,8 @@ async function teamMode(interaction) {
   const myName = getTeamName(myTeam);
   const allGames = await loadAllGames();
   const subjectFn  = teamSubjectFn(myName, leagueData);
-  const opponentFn = teamOpponentFn(myName, leagueData);
+  const rawOpponentFn = teamOpponentFn(myName, leagueData);
+  const opponentFn = (g) => displayTeamAbbrev(rawOpponentFn(g), leagueData);
 
   const games = allGames.filter(
     (g) =>
@@ -189,7 +196,7 @@ async function coachMode(interaction) {
       ...g,
       __opponentTeam: oppTeam,
       __opponentCoach: oppCoach,
-      __opponentLabel: oppCoach || oppTeam,
+      __opponentLabel: oppCoach || displayTeamAbbrev(oppTeam, leagueData),
     });
   }
 

@@ -13,6 +13,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { findMatchingTeam } = require('../utils/sheets');
 
 const {
   loadAllGames,
@@ -31,6 +32,11 @@ const {
   getTeamLogoUrl,
   findTeamByName,
 } = require('../utils/data');
+
+function displayTeamAbbrev(value, leagueData) {
+  const team = findMatchingTeam(leagueData, value);
+  return team?.abbrev || String(value || '').trim();
+}
 
 // ─── Tiny formatters ────────────────────────────────────────
 
@@ -64,7 +70,7 @@ function isPlaceholderScore(g) {
 
 function fmtGameLine(g, viewerSide, leagueData) {
   const isViewerA = sameTeam(g.teamA, viewerSide, leagueData);
-  const opp = isViewerA ? g.teamB : g.teamA;
+  const opp = displayTeamAbbrev(isViewerA ? g.teamB : g.teamA, leagueData);
 
   let icon = '⚪';
   if (g.winner) {
@@ -163,8 +169,10 @@ async function teamMode(interaction, opponent) {
   }
 
   const myName = getTeamName(myTeam);
-  const oppTeam = leagueData ? findTeamByName(leagueData, opponent) : null;
-  const oppLabel = oppTeam ? getTeamName(oppTeam) : opponent;
+  const oppTeam =
+    (leagueData ? findTeamByName(leagueData, opponent) : null) ||
+    findMatchingTeam(leagueData, opponent);
+  const oppLabel = oppTeam ? oppTeam.abbrev : opponent;
 
   const all = await loadAllGames();
   const games = all.filter(
@@ -276,10 +284,17 @@ async function coachMode(interaction, opponent) {
 
   const useCoach = matchedAsCoach.length > 0;
   const games = useCoach ? matchedAsCoach : matchedAsTeam;
+  const opponentLabel =
+    useCoach
+      ? opponent
+      : displayTeamAbbrev(
+          (games[0]?.__opponentTeam || opponent),
+          leagueData,
+        );
 
   if (!games.length) {
     return interaction.editReply(
-      `No meetings on record for **${myCoach}** vs **${opponent}**.`,
+      `No meetings on record for **${myCoach}** vs **${opponentLabel}**.`,
     );
   }
 
@@ -306,7 +321,7 @@ async function coachMode(interaction, opponent) {
 
   const titleSuffix = useCoach ? '(coach vs coach)' : '(coach vs team)';
   const embed = new EmbedBuilder()
-    .setTitle(`🏈 ${myCoach} vs ${opponent}  ${titleSuffix}`)
+    .setTitle(`🏈 ${myCoach} vs ${opponentLabel}  ${titleSuffix}`)
     .setColor(useCoach ? 0x9b59b6 : 0x2980b9)
     .setDescription(
       `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}`,

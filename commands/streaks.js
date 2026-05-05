@@ -13,6 +13,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { findMatchingTeam } = require('../utils/sheets');
 
 const {
   loadAllGames,
@@ -32,6 +33,11 @@ const {
   getTeamName,
   getTeamLogoUrl,
 } = require('../utils/data');
+
+function displayTeamAbbrev(value, leagueData) {
+  const team = findMatchingTeam(leagueData, value);
+  return team?.abbrev || String(value || '').trim();
+}
 
 // ─── Tiny formatters ────────────────────────────────────────
 
@@ -78,7 +84,8 @@ async function teamMode(interaction, vs) {
   const myName = getTeamName(myTeam);
   const allGames = await loadAllGames();
   const subjectFn = teamSubjectFn(myName, leagueData);
-  const opponentFn = teamOpponentFn(myName, leagueData);
+  const rawOpponentFn = teamOpponentFn(myName, leagueData);
+  const opponentFn = (g) => displayTeamAbbrev(rawOpponentFn(g), leagueData);
 
   let games = allGames.filter(
     (g) =>
@@ -95,7 +102,7 @@ async function teamMode(interaction, vs) {
 
   if (!games.length) {
     return interaction.editReply(
-      `No games found for **${myName}**${vs ? ` vs **${vs}**` : ''}.`,
+      `No games found for **${myName}**${vs ? ` vs **${displayTeamAbbrev(vs, leagueData)}**` : ''}.`,
     );
   }
 
@@ -106,9 +113,9 @@ async function teamMode(interaction, vs) {
   const winText  = wins.length   ? wins.map(fmtStreakLine).join('\n')   : null;
   const lossText = losses.length ? losses.map(fmtStreakLine).join('\n') : null;
 
-  const filterSuffix = vs ? ` vs ${vs}` : '';
+  const filterLabel = vs ? displayTeamAbbrev(vs, leagueData) : null;
   const embed = new EmbedBuilder()
-    .setTitle(`📈 ${myName} · Streaks${filterSuffix}`)
+    .setTitle(`📈 ${myName} · Streaks${filterLabel ? ` vs ${filterLabel}` : ''}`)
     .setColor(0x2980b9)
     .addFields(
       { name: '🟢 Top 5 Win Streaks',  value: trimField(winText)  },
@@ -160,8 +167,6 @@ async function coachMode(interaction, vs) {
       oppCoach = null;
     }
 
-    const opponentLabel = oppCoach || oppTeam;
-
     if (vs) {
       const matchesCoach = oppCoach && coachMatches(vs, oppCoach);
       const matchesTeamName = sameTeam(vs, oppTeam, leagueData);
@@ -172,13 +177,13 @@ async function coachMode(interaction, vs) {
       ...g,
       __opponentTeam: oppTeam,
       __opponentCoach: oppCoach,
-      __opponentLabel: opponentLabel,
+      __opponentLabel: oppCoach || displayTeamAbbrev(oppTeam, leagueData),
     });
   }
 
   if (!enriched.length) {
     return interaction.editReply(
-      `No games for **${myCoach}**${vs ? ` vs **${vs}**` : ''}.`,
+      `No games for **${myCoach}**${vs ? ` vs **${opponentFnLabel(vs, leagueData, hydrated)}**` : ''}.`,
     );
   }
 
@@ -192,7 +197,7 @@ async function coachMode(interaction, vs) {
   const winText  = wins.length   ? wins.map(fmtStreakLine).join('\n')   : null;
   const lossText = losses.length ? losses.map(fmtStreakLine).join('\n') : null;
 
-  const filterSuffix = vs ? ` vs ${vs}` : '';
+  const filterSuffix = vs ? ` vs ${opponentFnLabel(vs, leagueData, enriched)}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`📈 ${myCoach} · Career Streaks${filterSuffix}`)
     .setColor(0x9b59b6)
@@ -250,3 +255,9 @@ module.exports = {
     }
   },
 };
+
+function opponentFnLabel(vs, leagueData, games) {
+  const coachMatch = games.find((g) => g.__opponentCoach && coachMatches(vs, g.__opponentCoach));
+  if (coachMatch?.__opponentCoach) return coachMatch.__opponentCoach;
+  return displayTeamAbbrev(vs, leagueData);
+}
