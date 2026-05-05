@@ -71,6 +71,11 @@ function getTeamAliases(team) {
     'Texas Christian': 'TCU',
     'Ohio State': 'tOSU',
     'Alabama-Birmingham': 'UAB',
+    // The league JSON gives Michigan State the abbrev "MIST" instead
+    // of the universally-used "MSU", so historical sheet rows written
+    // "MSU" don't match the Spartans' alias set and silently drop out
+    // of /h2h, /streaks, /familytree, etc. Add MSU explicitly.
+    'Michigan State Spartans': 'MSU',
   };
 
   for (const [key, val] of Object.entries(mappings)) {
