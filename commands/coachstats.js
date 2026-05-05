@@ -127,17 +127,18 @@ function parseResumeSheet(rows) {
 }
 
 // ── Ranking formula ──────────────────────────────────────────
-// Sustained excellence (win %) is the primary signal, with raw wins
-// rewarding longevity, championships providing big bonuses, and bowl
-// wins / playoff appearances giving meaningful but smaller bumps.
+// Sustained excellence (win %) dominates — a great-record coach with
+// no titles should clearly outrank a sub-.500 coach with one conf
+// championship. Wins reward longevity. Nat titles still kingmake.
 // Calibration target: a .744 / 58-20 coach with 1 PA + 3 bowl wins
-// should be clearly ahead of a .505 / 52-51 coach with 1 CC + 2 BW.
+// should be ~40 points clear of a .505 / 52-51 coach with 1 CC + 2 BW
+// (i.e., several rank positions, not just one).
 function computeScore(c, resume) {
   if (!resume || c.years < 1) return 0;
   return (resume.wins   * 1.0)
-       + (resume.pct    * 120)
+       + (resume.pct    * 180)
        + (c.natTitles   * 150)
-       + (c.confTitles  * 25)
+       + (c.confTitles  * 18)
        + (c.divTitles   * 8)
        + (c.playoffs    * 8)
        + (c.bowlWins    * 4);

@@ -79,6 +79,23 @@ function getTeamAliases(team) {
     }
   }
 
+  // Aliases to STRIP for collision-prone teams. The league JSON ships
+  // some duplicate abbrevs (e.g. Ohio State and Oregon State both
+  // abbrev'd "OSU"), which lets a CSV row written as "OSU" match the
+  // wrong team via canonicalTeamName + first-match-wins. The sheet
+  // disambiguates Ohio State as "tOSU" (added by the mappings above),
+  // so drop bare "OSU" from Ohio State's alias set and let Oregon
+  // State own it cleanly.
+  const aliasBlocklist = {
+    'Ohio State': ['OSU'],
+  };
+
+  for (const [key, blocked] of Object.entries(aliasBlocklist)) {
+    if (full === key) {
+      [].concat(blocked).forEach((v) => aliases.delete(v));
+    }
+  }
+
   return new Set([...aliases].map(normalize).filter(Boolean));
 }
 
