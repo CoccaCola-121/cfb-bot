@@ -56,12 +56,24 @@ async function loadResume() {
   }
   if (!rows || rows.length < 2) return [];
 
-  const header = rows[0];
-  const yearCols = [];
+  const header = rows[0].map((cell) => String(cell || '').trim());
+  const yearCols = header
+    .map((value, index) => (isYear(value) ? { year: Number(value), col: index } : null))
+    .filter(Boolean);
 
-  for (let i = 0; i < header.length; i++) {
-    if (isYear(header[i])) yearCols.push({ year: +header[i], col: i });
+  const seenYears = new Set();
+  let splitAt = -1;
+  for (let i = 0; i < yearCols.length; i++) {
+    if (seenYears.has(yearCols[i].year)) {
+      splitAt = i;
+      break;
+    }
+    seenYears.add(yearCols[i].year);
   }
+
+  const recordYearCols = splitAt >= 0 ? yearCols.slice(0, splitAt) : yearCols;
+  const teamYearCols = splitAt >= 0 ? yearCols.slice(splitAt) : [];
+  const teamColByYear = new Map(teamYearCols.map(({ year, col }) => [year, col]));
 
   const result = [];
 
@@ -70,9 +82,12 @@ async function loadResume() {
     const coach = String(row[0] || '').trim();
     if (!coach) continue;
 
-    for (const { year, col } of yearCols) {
+    for (const { year, col } of recordYearCols) {
       const record = parseRecord(row[col]);
-      const team = row[col + 1] ? String(row[col + 1]).trim() : null;
+      const teamCol = teamColByYear.get(year);
+      const team = teamCol !== undefined && row[teamCol]
+        ? String(row[teamCol]).trim()
+        : null;
 
       if (!record && !team) continue;
 
