@@ -25,7 +25,7 @@ const {
 } = require('../utils/h2h');
 const { currentStreak, recordFor } = require('../utils/streakEngine');
 const { coachAttribution } = require('../utils/coachTenures');
-const { getUserCoachName, getUserTeam } = require('../utils/userMap');
+const { getUserCoachName, getUserTeam, loadCoachIndex } = require('../utils/userMap');
 const {
   getLatestLeagueData,
   getTeamName,
@@ -143,6 +143,19 @@ function biggestLoss(games, viewerSide, leagueData) {
 function compactGameRef(g) {
   const margin = Math.abs((g.scoreA ?? 0) - (g.scoreB ?? 0));
   return `${margin}-pt margin · ${g.year} ${fmtWeek(g)}`;
+}
+
+async function opponentLooksLikeCoach(opponent) {
+  if (!opponent) return false;
+
+  const index = await loadCoachIndex();
+  for (const entry of index.values()) {
+    if (entry?.coach && coachMatches(opponent, entry.coach)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ─── Mode handlers ──────────────────────────────────────────
@@ -361,7 +374,8 @@ module.exports = {
     await interaction.deferReply();
 
     const opponent = interaction.options.getString('opponent');
-    const as = interaction.options.getString('as') || 'team';
+    const explicitAs = interaction.options.getString('as');
+    const as = explicitAs || (await opponentLooksLikeCoach(opponent) ? 'coach' : 'team');
 
     try {
       if (as === 'coach') {
