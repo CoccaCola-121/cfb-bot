@@ -1,7 +1,8 @@
 // utils/coachTenures.js
 
 const { fetchSheetCsvCached } = require('./sheetCache');
-const { normalize } = require('./sheets');
+const { normalize, findMatchingTeam, canonicalTeamAlias } = require('./sheets');
+const { getLatestLeagueData, getTeamName } = require('./data');
 const overrides = require('./h2hOverrides');
 
 // Resume sheet — same defaults as the rest of the bot
@@ -93,15 +94,33 @@ function coachAliasesFor(name) {
   return [base, base.replace('@', '')];
 }
 
+function canonicalTeamKey(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const aliased = canonicalTeamAlias(raw);
+  if (aliased && aliased !== raw) {
+    return normalize(aliased);
+  }
+
+  const leagueData = getLatestLeagueData();
+  const matched = findMatchingTeam(leagueData, raw);
+  if (matched) {
+    return normalize(getTeamName(matched));
+  }
+
+  return normalize(raw);
+}
+
 async function getCoachForTeamYear(team, year) {
   const rows = await loadResume();
-  const targetTeam = normalize(team);
+  const targetTeam = canonicalTeamKey(team);
 
   const match = rows.find(
     (r) =>
       r.year === year &&
       r.team &&
-      normalize(r.team) === targetTeam
+      canonicalTeamKey(r.team) === targetTeam
   );
 
   return match ? match.coach : null;

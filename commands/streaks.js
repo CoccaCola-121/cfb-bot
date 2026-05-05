@@ -26,7 +26,7 @@ const {
   coachSubjectFn,
 } = require('../utils/h2h');
 
-const { opponentStreaks } = require('../utils/streakEngine');
+const { opponentStreaks, currentStreak } = require('../utils/streakEngine');
 const { coachAttribution } = require('../utils/coachTenures');
 const { getUserCoachName, getUserTeam } = require('../utils/userMap');
 const {
@@ -68,25 +68,31 @@ function sortRuns(runs) {
   });
 }
 
-function isLaterStreak(a, b) {
-  if ((a?.end?.year || 0) !== (b?.end?.year || 0)) {
-    return (a?.end?.year || 0) > (b?.end?.year || 0);
-  }
-  if ((a?.end?.week || 0) !== (b?.end?.week || 0)) {
-    return (a?.end?.week || 0) > (b?.end?.week || 0);
-  }
-  return false;
-}
+function activeRunsByOpponent(games, subjectFn, getOpponent) {
+  const grouped = new Map();
 
-function latestRunsByOpponent(runs) {
-  const latest = new Map();
-  for (const run of runs || []) {
-    const current = latest.get(run.opponent);
-    if (!current || isLaterStreak(run, current)) {
-      latest.set(run.opponent, run);
-    }
+  for (const game of games || []) {
+    const opponent = getOpponent(game);
+    if (!opponent) continue;
+    if (!grouped.has(opponent)) grouped.set(opponent, []);
+    grouped.get(opponent).push(game);
   }
-  return [...latest.values()];
+
+  const out = [];
+  for (const [opponent, opponentGames] of grouped.entries()) {
+    const streak = currentStreak(opponentGames, subjectFn);
+    if (!streak) continue;
+    out.push({
+      opponent,
+      type: streak.rawType,
+      length: streak.length,
+      start: streak.startGame,
+      end: streak.endGame,
+      games: opponentGames,
+    });
+  }
+
+  return out;
 }
 
 // ─── Mode handlers ──────────────────────────────────────────
@@ -129,7 +135,7 @@ async function teamMode(interaction, vs, activeOnly) {
   }
 
   const allRuns = opponentStreaks(games, subjectFn, opponentFn);
-  const runs = activeOnly ? latestRunsByOpponent(allRuns) : allRuns;
+  const runs = activeOnly ? activeRunsByOpponent(games, subjectFn, opponentFn) : allRuns;
   const wins = sortRuns(runs.filter((r) => r.type === 'win')).slice(0, 5);
   const losses = sortRuns(runs.filter((r) => r.type === 'loss')).slice(0, 5);
 
@@ -216,7 +222,7 @@ async function coachMode(interaction, vs, activeOnly) {
   const subjectFn = coachSubjectFn();
   const opponentFn = (g) => g.__opponentLabel;
   const allRuns = opponentStreaks(enriched, subjectFn, opponentFn);
-  const runs = activeOnly ? latestRunsByOpponent(allRuns) : allRuns;
+  const runs = activeOnly ? activeRunsByOpponent(enriched, subjectFn, opponentFn) : allRuns;
 
   const wins = sortRuns(runs.filter((r) => r.type === 'win')).slice(0, 5);
   const losses = sortRuns(runs.filter((r) => r.type === 'loss')).slice(0, 5);

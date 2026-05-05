@@ -173,6 +173,17 @@ const TEAM_ALIAS_MAPPINGS = Object.fromEntries(
   ])
 );
 
+const TEAM_ALIAS_LOOKUP = (() => {
+  const lookup = new Map();
+  for (const [fullName, aliases] of Object.entries(TEAM_ALIAS_MAPPINGS_RAW)) {
+    lookup.set(normalize(fullName), fullName);
+    for (const alias of aliases) {
+      lookup.set(normalize(alias), fullName);
+    }
+  }
+  return lookup;
+})();
+
 // Build a set of normalized aliases for a Football-GM team object
 function getTeamAliases(team) {
   const aliases = new Set();
@@ -211,6 +222,21 @@ function matchesTeam(cellValue, team) {
   return getTeamAliases(team).has(v);
 }
 
+function canonicalTeamAlias(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = normalize(raw);
+  const direct = TEAM_ALIAS_LOOKUP.get(normalized);
+  if (direct) return direct;
+
+  const prefixMatches = Object.keys(TEAM_ALIAS_MAPPINGS_RAW).filter(
+    (fullName) => normalize(fullName).startsWith(normalized)
+  );
+  if (prefixMatches.length === 1) return prefixMatches[0];
+
+  return raw;
+}
+
 function findMatchingTeam(leagueData, query) {
   if (!leagueData?.teams || !query) return null;
   for (const team of leagueData.teams) {
@@ -228,4 +254,5 @@ module.exports = {
   getTeamAliases,
   matchesTeam,
   findMatchingTeam,
+  canonicalTeamAlias,
 };
