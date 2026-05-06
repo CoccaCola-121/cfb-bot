@@ -9,14 +9,71 @@ const { getWeekLabel } = require('../utils/weekLabels');
 const { findMatchingTeam } = require('../utils/sheets');
 const { loadAllGames, sameTeam } = require('../utils/h2h');
 const { isLive } = require('../utils/seasonMode');
+const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 
 const H2H_TRACKED_SINCE_SEASON = 2025;
+const INFO_SHEET_ID =
+  process.env.NZCFL_INFO_SHEET_ID ||
+  process.env.GOOGLE_SHEET_ID ||
+  '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 
 function isPlaceholderScore(teamScore, oppScore) {
   return (
     (teamScore === 1 && oppScore === 0) ||
     (teamScore === 0 && oppScore === 1)
   );
+}
+
+function findYearColumn(rows, year) {
+  const yearText = String(year).trim();
+  for (let r = 0; r < Math.min(rows.length, 6); r++) {
+    const idx = rows[r].findIndex((c) => String(c || '').trim() === yearText);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+function findWeekPairs(rows, yearCol) {
+  const pairs = [];
+  const seenWeeks = new Set();
+
+  for (let r = 0; r < Math.min(rows.length, 8); r++) {
+    for (let c = yearCol; c < rows[r].length; c++) {
+      const weekMatch = String(rows[r][c] || '').match(/^Week\s+(\d+)$/i);
+      if (!weekMatch) continue;
+      const weekNum = Number(weekMatch[1]);
+      if (seenWeeks.has(weekNum)) continue;
+
+      for (let rr = r; rr < Math.min(r + 4, rows.length); rr++) {
+        const left = String(rows[rr][c] || '').trim().toLowerCase();
+        const right = String(rows[rr][c + 1] || '').trim().toLowerCase();
+        if (left === 'away' && right === 'home') {
+          seenWeeks.add(weekNum);
+          pairs.push({ week: weekNum, awayCol: c, homeCol: c + 1, dataStartRow: rr + 1 });
+          break;
+        }
+      }
+    }
+  }
+
+  return pairs.sort((a, b) => a.week - b.week);
+}
+
+function findOocMatchup(rows, team, pair) {
+  for (let r = pair.dataStartRow; r < rows.length; r++) {
+    const away = String(rows[r][pair.awayCol] || '').trim();
+    const home = String(rows[r][pair.homeCol] || '').trim();
+    if (!away && !home) continue;
+
+    if (sameTeam(away, getTeamName(team), getLatestLeagueData())) {
+      return home ? `@ ${home}` : null;
+    }
+    if (sameTeam(home, getTeamName(team), getLatestLeagueData())) {
+      return away ? `vs ${away}` : null;
+    }
+  }
+
+  return null;
 }
 
 function resolveTeam(leagueData, teamArg) {
@@ -34,7 +91,7 @@ async function getHistoricalTeamSchedule(leagueData, team, year) {
   const allGames = await loadAllGames();
   const teamName = getTeamName(team);
 
-  const games = allGames
+  let games = allGames
     .filter((g) => Number(g.year) === Number(year))
     .filter((g) => sameTeam(g.teamA, teamName, leagueData) || sameTeam(g.teamB, teamName, leagueData))
     .map((g) => {
@@ -59,6 +116,40 @@ async function getHistoricalTeamSchedule(leagueData, team, year) {
       };
     })
     .sort((a, b) => (a.week ?? 999) - (b.week ?? 999));
+
+  const hasRealPlayoffGame = games.some((g) => Number(g.week) >= 15);
+  if (hasRealPlayoffGame) {
+    games = games.filter((g) => !(Number(g.week) === 14 && isPlaceholderScore(g.teamScore, g.oppScore)));
+  }
+
+  return {
+    season: Number(year),
+    team,
+    games,
+  };
+}
+
+async function getFutureTeamSchedule(team, year) {
+  const rows = await fetchSheetCsv(INFO_SHEET_ID, 'OOC');
+  const yearCol = findYearColumn(rows, year);
+  if (yearCol === -1) {
+    return { season: Number(year), team, games: [] };
+  }
+
+  const weekPairs = findWeekPairs(rows, yearCol);
+  const pairByWeek = new Map(weekPairs.map((pair) => [pair.week, pair]));
+  const games = [];
+
+  for (let week = 1; week <= 12; week++) {
+    const pair = pairByWeek.get(week);
+    const matchup = pair ? findOocMatchup(rows, team, pair) : null;
+    games.push({
+      week,
+      weekLabel: getWeekLabel(week),
+      isFuture: true,
+      matchup,
+    });
+  }
 
   return {
     season: Number(year),
@@ -121,7 +212,9 @@ module.exports = {
     const useLiveSchedule = targetYear === currentSeason && isLive(leagueData);
 
     let result;
-    if (useLiveSchedule) {
+    if (targetYear > currentSeason) {
+      result = await getFutureTeamSchedule(team, targetYear);
+    } else if (useLiveSchedule) {
       result = getTeamSchedule(leagueData, team.abbrev);
     } else {
       result = await getHistoricalTeamSchedule(leagueData, team, targetYear);
@@ -135,6 +228,11 @@ module.exports = {
     }
 
     const lines = result.games.map((g) => {
+      if (g.isFuture) {
+        return g.matchup
+          ? `**Week ${g.week}** — ${g.matchup}`
+          : `**Week ${g.week}** — *TBD*`;
+      }
       const weekLabel = g.weekLabel || getWeekLabel(g.week);
       if (isPlaceholderScore(g.teamScore, g.oppScore)) {
         const resultWord = g.result === 'W' ? 'Won' : g.result === 'L' ? 'Lost' : 'Tied';
@@ -159,7 +257,9 @@ module.exports = {
         .setColor(0x5865f2)
         .setDescription(chunk.join('\n'))
         .setFooter({
-          text: useLiveSchedule
+          text: targetYear > currentSeason
+            ? `Season ${result.season} · OOC scheduled so far`
+            : useLiveSchedule
             ? `Season ${result.season}`
             : `Season ${result.season} · H2H history`
         })
