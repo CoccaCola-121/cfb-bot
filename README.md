@@ -75,11 +75,7 @@ The bot expects a few specific sheets, identified per-sheet in `.env`:
 - **Recruiting Ranks Sheet** — 247-style class rankings
 - **Value Sheet** — per-team value rankings
 
-### 4. Reddit credentials (optional, for `/redditnews`)
-
-Create a script-type Reddit app at <https://www.reddit.com/prefs/apps> and copy the client ID + secret into `.env`. Without these, `/redditnews` is disabled.
-
-### 5. Configure `.env`
+### 4. Configure `.env`
 
 ```ini
 # Discord
@@ -217,7 +213,6 @@ After each league sim:
 |---|---|
 | `/recruitingclass <team>` | Upcoming class with 247-style rankings |
 | `/toprecruits [position]` | Top recruits by position with commitments |
-| `/recruitoffers <player>` | 247-style offer board for one recruit |
 
 ### Rankings
 
@@ -225,12 +220,6 @@ After each league sim:
 |---|---|
 | `/rankingstats <team>` | All-time ranking history summary |
 | `/valueboard [conference]` | Team value rankings |
-
-### News
-
-| Command | Description |
-|---|---|
-| `/redditnews [new\|hot\|top]` | Latest posts from the league subreddit |
 
 ### Mod-Only
 
@@ -277,8 +266,6 @@ The bot only runs while the host process is alive. Production options:
 **`/standings` says "No league data loaded".** Run `/loadweek` first. Files persist across restarts in `DATA_DIR`.
 
 **A `/coachstats`-style command says it can't read the sheet.** Confirm the sheet is set to "Anyone with the link can view", and that the matching `*_SHEET_ID` and `*_GID` (or tab name) are correct in `.env`.
-
-**`/redditnews` returns nothing.** Check `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`, and `REDDIT_SUBREDDIT` are all set.
 
 **Token error on startup.** Re-check `DISCORD_TOKEN` for stray whitespace.
 
