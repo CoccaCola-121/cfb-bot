@@ -3,9 +3,62 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLatestLeagueData, getTeamSchedule } = require('../utils/data');
+const { getLatestLeagueData, getTeamSchedule, getCurrentSeason, getTeamName } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
 const { getWeekLabel } = require('../utils/weekLabels');
+const { findMatchingTeam } = require('../utils/sheets');
+const { loadAllGames, sameTeam } = require('../utils/h2h');
+
+const H2H_TRACKED_SINCE_SEASON = 2025;
+
+function resolveTeam(leagueData, teamArg) {
+  if (!teamArg) return null;
+
+  const exactAbbrev = (leagueData.teams || []).find(
+    (t) => !t.disabled && String(t.abbrev || '').toUpperCase() === String(teamArg || '').toUpperCase().trim()
+  );
+  if (exactAbbrev) return exactAbbrev;
+
+  return findMatchingTeam(leagueData, teamArg);
+}
+
+async function getHistoricalTeamSchedule(leagueData, team, year) {
+  const allGames = await loadAllGames();
+  const teamName = getTeamName(team);
+
+  const games = allGames
+    .filter((g) => Number(g.year) === Number(year))
+    .filter((g) => sameTeam(g.teamA, teamName, leagueData) || sameTeam(g.teamB, teamName, leagueData))
+    .map((g) => {
+      const isTeamA = sameTeam(g.teamA, teamName, leagueData);
+      const opponentName = isTeamA ? g.teamB : g.teamA;
+      const opponentTeam = findMatchingTeam(leagueData, opponentName);
+      const teamScore = isTeamA ? g.scoreA : g.scoreB;
+      const oppScore = isTeamA ? g.scoreB : g.scoreA;
+
+      let result = '';
+      if (teamScore > oppScore) result = 'W';
+      else if (teamScore < oppScore) result = 'L';
+      else result = 'T';
+
+      return {
+        week: g.week,
+        weekLabel: g.weekLabel || getWeekLabel(g.week),
+        opponent: opponentTeam ? getTeamName(opponentTeam) : String(opponentName || '').trim(),
+        opponentAbbrev: opponentTeam?.abbrev || String(opponentName || '').trim(),
+        teamScore,
+        oppScore,
+        result,
+      };
+    })
+    .sort((a, b) => (a.week ?? 999) - (b.week ?? 999));
+
+  return {
+    season: Number(year),
+    team,
+    games,
+  };
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,6 +68,12 @@ module.exports = {
       opt
         .setName('team')
         .setDescription('Team abbreviation, e.g. MSU (defaults to your linked team if you ran /iam)')
+        .setRequired(false)
+    )
+    .addIntegerOption((opt) =>
+      opt
+        .setName('year')
+        .setDescription('Season year, e.g. 2059. Uses H2H history for past seasons.')
         .setRequired(false)
     ),
 
@@ -27,10 +86,13 @@ module.exports = {
     }
 
     const teamArg = interaction.options.getString('team');
+    const yearArg = interaction.options.getInteger('year');
     let abbrev = null;
+    let team = null;
 
     if (teamArg) {
       abbrev = teamArg.toUpperCase().trim();
+      team = resolveTeam(leagueData, teamArg);
     } else {
       const userTeam = await getUserTeam(leagueData, interaction.user.id);
       if (!userTeam) {
@@ -40,20 +102,33 @@ module.exports = {
         );
       }
       abbrev = String(userTeam.abbrev || '').toUpperCase().trim();
+      team = userTeam;
     }
 
-    const result = getTeamSchedule(leagueData, abbrev);
-
-    if (!result) {
+    if (!team) {
       return interaction.editReply(`❌ No active team found with abbreviation **${abbrev}**.`);
     }
 
+    const currentSeason = Number(getCurrentSeason(leagueData));
+    const targetYear = yearArg || currentSeason;
+
+    let result;
+    if (targetYear === currentSeason) {
+      result = getTeamSchedule(leagueData, team.abbrev);
+    } else {
+      result = await getHistoricalTeamSchedule(leagueData, team, targetYear);
+    }
+
     if (result.games.length === 0) {
-      return interaction.editReply(`No games found for **${result.team.abbrev}**.`);
+      const historicalNote = targetYear < H2H_TRACKED_SINCE_SEASON
+        ? ` H2H schedule history starts in **${H2H_TRACKED_SINCE_SEASON}**.`
+        : '';
+      return interaction.editReply(`No games found for **${result.team.abbrev}** in **${targetYear}**.${historicalNote}`);
     }
 
     const lines = result.games.map((g) => {
-      return `**${getWeekLabel(g.week)}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})`;
+      const weekLabel = g.weekLabel || getWeekLabel(g.week);
+      return `**${weekLabel}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})`;
     });
 
     const chunkSize = 20;
@@ -71,7 +146,11 @@ module.exports = {
         )
         .setColor(0x5865f2)
         .setDescription(chunk.join('\n'))
-        .setFooter({ text: `Season ${result.season}` })
+        .setFooter({
+          text: targetYear === currentSeason
+            ? `Season ${result.season}`
+            : `Season ${result.season} · H2H history`
+        })
     );
 
     return interaction.editReply({ embeds: embeds.slice(0, 10) });
