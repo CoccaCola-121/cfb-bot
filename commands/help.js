@@ -33,7 +33,7 @@ module.exports = {
             '`/standings <conference>` — Conference standings split by division',
             '`/teamstats <team>` — Full stats, offense/defense ranks + recruiting snapshot',
             '`/teamleaderboards <stat>` — Top 10 team stat leaderboards',
-            '`/teamschedule <team>` — Full schedule and results',
+            '`/teamschedule [team] [year]` — Current season, historical H2H schedules, or future OOC/TBD schedule view',
             '`/playerleaders <stat>` — Top 10 players in any stat category',
             '`/playerpage <player>` — Full player profile, ratings, and stats',
             '`/scores [week]` — Game scores, latest week or specify',
@@ -57,6 +57,9 @@ module.exports = {
         {
           name: '📜 History & Lore',
           value: [
+            '`/h2h opponent:<team|coach> [as]` — Team/coach head-to-head with auto coach detection and 2025+ tracking',
+            '`/streaks [vs] [as] [active:no]` — Active streaks by default; use `active:no` for all-time streaks',
+            '`/familytree [as]` — Top teams/coaches you dominate and who dominate you',
             '`/championships [view] [year] [coach]` — National champs, conference champs, or division champs by view/year/coach',
             '`/teamhistory <team>` — Coaching eras and championship years',
             '`/trashtalk <team>` — Generate a playful jab at a rival, fueled by real stats',
@@ -71,9 +74,8 @@ module.exports = {
           ].join('\n'),
         },
         {
-          name: '📅 Schedule & Rankings',
+          name: '📅 Rankings',
           value: [
-            '`/ooc <team> [year]` — Out-of-conference schedule',
             '`/rankingstats <team>` — All-time ranking history summary',
             '`/valueboard [conference]` — Team value rankings',
           ].join('\n'),

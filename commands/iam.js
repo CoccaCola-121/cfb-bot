@@ -139,7 +139,7 @@ module.exports = {
         name: 'What this does',
         value:
           'Most commands (e.g. `/boxscore`, `/teamstats`, `/teamschedule`, ' +
-          '`/coachstats`, `/injuries`, `/recruitingclass`, `/ooc`, `/rankingstats`) ' +
+          '`/coachstats`, `/injuries`, `/recruitingclass`, `/rankingstats`) ' +
           'will now default to your team if you call them without arguments. ' +
           'You can still pass a team to override.',
       })

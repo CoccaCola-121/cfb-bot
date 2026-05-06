@@ -180,7 +180,7 @@ After each league sim:
 | `/standings [conference]` | Conference standings split by division |
 | `/teamstats [team]` | Full stats, offense/defense ranks, recruiting snapshot |
 | `/teamleaderboards <stat>` | Top 10 team stat leaderboards |
-| `/teamschedule [team]` | Full schedule with reg-season + postseason labels |
+| `/teamschedule [team] [year]` | Current season, historical H2H schedules, or future OOC/TBD schedule view |
 | `/playerleaders <stat>` | Top 10 players in any stat category |
 | `/playerpage <player>` | Full player profile, ratings, stats |
 | `/scores [week]` | Game scores for a week (defaults to latest) |
@@ -204,6 +204,9 @@ After each league sim:
 
 | Command | Description |
 |---|---|
+| `/h2h opponent:<team\|coach> [as]` | Team/coach head-to-head with auto coach detection and 2025+ tracking |
+| `/streaks [vs] [as] [active:no]` | Active streaks by default; use `active:no` for all-time streaks |
+| `/familytree [as]` | Top teams/coaches you dominate and who dominate you |
 | `/championships [year] [coach]` | National champions, or all conference + division winners for a given year |
 | `/teamhistory <team>` | Coaching eras and championship years |
 | `/trashtalk <team>` | Generate a playful jab at a rival, fueled by real stats |
@@ -216,11 +219,10 @@ After each league sim:
 | `/toprecruits [position]` | Top recruits by position with commitments |
 | `/recruitoffers <player>` | 247-style offer board for one recruit |
 
-### Schedule & Rankings
+### Rankings
 
 | Command | Description |
 |---|---|
-| `/ooc <team> [year]` | Out-of-conference schedule |
 | `/rankingstats <team>` | All-time ranking history summary |
 | `/valueboard [conference]` | Team value rankings |
 
