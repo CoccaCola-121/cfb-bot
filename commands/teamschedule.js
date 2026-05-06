@@ -8,8 +8,16 @@ const { getUserTeam } = require('../utils/userMap');
 const { getWeekLabel } = require('../utils/weekLabels');
 const { findMatchingTeam } = require('../utils/sheets');
 const { loadAllGames, sameTeam } = require('../utils/h2h');
+const { isLive } = require('../utils/seasonMode');
 
 const H2H_TRACKED_SINCE_SEASON = 2025;
+
+function isPlaceholderScore(teamScore, oppScore) {
+  return (
+    (teamScore === 1 && oppScore === 0) ||
+    (teamScore === 0 && oppScore === 1)
+  );
+}
 
 function resolveTeam(leagueData, teamArg) {
   if (!teamArg) return null;
@@ -44,7 +52,6 @@ async function getHistoricalTeamSchedule(leagueData, team, year) {
       return {
         week: g.week,
         weekLabel: g.weekLabel || getWeekLabel(g.week),
-        opponent: opponentTeam ? getTeamName(opponentTeam) : String(opponentName || '').trim(),
         opponentAbbrev: opponentTeam?.abbrev || String(opponentName || '').trim(),
         teamScore,
         oppScore,
@@ -111,9 +118,10 @@ module.exports = {
 
     const currentSeason = Number(getCurrentSeason(leagueData));
     const targetYear = yearArg || currentSeason;
+    const useLiveSchedule = targetYear === currentSeason && isLive(leagueData);
 
     let result;
-    if (targetYear === currentSeason) {
+    if (useLiveSchedule) {
       result = getTeamSchedule(leagueData, team.abbrev);
     } else {
       result = await getHistoricalTeamSchedule(leagueData, team, targetYear);
@@ -128,6 +136,10 @@ module.exports = {
 
     const lines = result.games.map((g) => {
       const weekLabel = g.weekLabel || getWeekLabel(g.week);
+      if (isPlaceholderScore(g.teamScore, g.oppScore)) {
+        const resultWord = g.result === 'W' ? 'Won' : g.result === 'L' ? 'Lost' : 'Tied';
+        return `**${weekLabel}** — ${resultWord} vs **${g.opponentAbbrev}**`;
+      }
       return `**${weekLabel}** — ${g.result} vs **${g.opponentAbbrev}** (${g.teamScore}-${g.oppScore})`;
     });
 
@@ -147,7 +159,7 @@ module.exports = {
         .setColor(0x5865f2)
         .setDescription(chunk.join('\n'))
         .setFooter({
-          text: targetYear === currentSeason
+          text: useLiveSchedule
             ? `Season ${result.season}`
             : `Season ${result.season} · H2H history`
         })
