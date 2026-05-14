@@ -5,7 +5,7 @@
 //    • Coach     — positional layout (col B = Team, col C = Rank)
 //    • Winning   — row-per-team, explicit Rank column
 //    • Campus / Edu / ProPot / Tradition / Prestige
-//        — year-column layout: team in the 2060 column,
+//        — year-column layout: team in the 2061 column,
 //          rank inferred from row position (first row = rank 1)
 //
 //  Modes:
@@ -31,7 +31,7 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const INFO_SHEET_ID = process.env.NZCFL_INFO_SHEET_ID
   || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 
-const TARGET_YEAR = process.env.NZCFL_INFO_YEAR || '2060';
+const TARGET_YEAR = process.env.NZCFL_INFO_YEAR || '2061';
 
 const APP_SCHOOL_THRESHOLD      = 15; // top-15 ranks count as "application-level"
 const APP_SCHOOL_REQUIRED_COUNT = 3;  // need 3+ such ranks to earn the tag
@@ -136,7 +136,7 @@ function parseWinningSheet(rows) {
 }
 
 // Year-column tabs (Campus / Edu / ProPot / Tradition / Prestige):
-// Header row has year labels (2052…2060) and a "Rank" column (typically column A).
+// Header row has year labels (2052…2061) and a "Rank" column (typically column A).
 // The Rank column is the AUTHORITATIVE rank — using row position breaks once the
 // league expanded from 80 → 120 teams, since older year columns leave rows 83-122
 // blank while newer year columns still hold valid teams in those rows.
