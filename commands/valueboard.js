@@ -38,8 +38,8 @@ const APP_SCHOOL_REQUIRED_COUNT = 3;  // need 3+ such ranks to earn the tag
 
 // Coach is tied to the current head coach and walks out the door with them.
 // We still show it in team lookups and let users query it as its own
-// leaderboard, but it never factors into the school-level value metrics
-// (Average leaderboard, per-team Average, or App School qualification).
+// leaderboard. It now factors into Average leaderboards and per-team
+// Average, but never into App School qualification.
 const SCHOOL_VALUE_KEYS = new Set(['Campus', 'Edu', 'ProPot', 'Tradition', 'Prestige', 'Winning']);
 const isSchoolValueCat = (cat) => SCHOOL_VALUE_KEYS.has(cat.key);
 
@@ -270,16 +270,16 @@ module.exports = {
       );
       if (!team) return interaction.editReply(`❌ No active team with abbreviation **${teamQuery}**.`);
 
-      // Coach rank is still shown in the embed but excluded from the Average
-      // and App-School counts — it leaves with the head coach, not the school.
-      const fields  = [];
-      const ranks   = [];
-      let   top15   = 0;
+      // Coach rank counts toward Average, but App School is still based only
+      // on school-level categories.
+      const fields     = [];
+      const avgRanks   = [];
+      let   top15      = 0;
       for (const cat of categoryData) {
         const entry = cat.entries.find((e) => matchesTeam(e.team, team));
         if (entry) {
+          avgRanks.push(entry.rank);
           if (isSchoolValueCat(cat)) {
-            ranks.push(entry.rank);
             if (entry.rank <= APP_SCHOOL_THRESHOLD) top15 += 1;
           }
           fields.push({ name: cat.label, value: formatRankCell(entry.rank), inline: true });
@@ -288,8 +288,8 @@ module.exports = {
         }
       }
 
-      const avgLine = ranks.length
-        ? `**Average (of ${ranks.length}):** ${(ranks.reduce((a, b) => a + b, 0) / ranks.length).toFixed(2)}`
+      const avgLine = avgRanks.length
+        ? `**Average (of ${avgRanks.length}):** ${(avgRanks.reduce((a, b) => a + b, 0) / avgRanks.length).toFixed(2)}`
         : '_No category data found for this team._';
 
       const appLine = top15 >= APP_SCHOOL_REQUIRED_COUNT
@@ -322,11 +322,12 @@ module.exports = {
       isAverageMode = true;
       limit = 25;
 
-      // Coach is omitted here — see SCHOOL_VALUE_KEYS comment up top.
-      const schoolCats = categoryData.filter(isSchoolValueCat);
+      // Average includes Coach when that sheet has data, but App School still
+      // only counts school-level categories.
+      const averageCats = categoryData.filter((c) => c.entries.length > 0);
 
       const teamMap = new Map(); // normalized key → { displayName, ranks[] }
-      for (const cat of schoolCats) {
+      for (const cat of averageCats) {
         for (const entry of cat.entries) {
           const key = normalize(entry.team);
           if (!key) continue;
@@ -335,7 +336,7 @@ module.exports = {
         }
       }
 
-      const totalCats = schoolCats.filter((c) => c.entries.length > 0).length;
+      const totalCats = averageCats.length;
       leaderboard = [...teamMap.values()]
         .filter((t) => t.ranks.length === totalCats)
         .map((t) => ({
@@ -345,7 +346,7 @@ module.exports = {
         .sort((a, b) => a.value - b.value)
         .map((e, idx) => ({ ...e, rank: idx + 1 }));
 
-      titleSuffix = `Average — mean rank across ${totalCats} school-value categories`;
+      titleSuffix = `Average — mean rank across ${totalCats} categories`;
     } else {
       limit = 10;
       const cat = categoryData.find((c) => c.key === categoryChoice);
