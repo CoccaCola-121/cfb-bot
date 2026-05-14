@@ -22,6 +22,11 @@ function ordinal(n) {
   }
 }
 
+function formatClassRank(rank, tied = false) {
+  if (!rank) return '?';
+  return tied ? `T-${ordinal(rank)}` : ordinal(rank);
+}
+
 function normalizePos(pos) {
   const p = String(pos || '').toUpperCase().trim().replace(/[\s\d/\\.,-]+$/, '');
   if (['OT','OG','OC','C','LT','RT','LG','RG'].includes(p)) return 'OL';
@@ -268,9 +273,7 @@ module.exports = {
       commitsField = next;
     }
 
-    const rankStr = class247?.teamRank
-      ? (class247.tied ? `T-${ordinal(class247.teamRank)}` : ordinal(class247.teamRank))
-      : '?';
+    const rankStr = formatClassRank(class247?.teamRank, class247?.tied);
     const scoreStr = (class247 && Number.isFinite(class247.rankScore))
       ? class247.rankScore.toFixed(3)
       : '?';
@@ -288,7 +291,7 @@ module.exports = {
         { name: 'Class Summary', value: summaryValue,            inline: false },
         { name: 'Commits',       value: commitsField || '—',     inline: false },
       )
-      .setFooter({ text: `${recruitSheetName} • NZCFL Info + 247 ranks` })
+      .setFooter({ text: `NZCFL Info + ${RANKS_SHEET_NAME}` })
       .setTimestamp();
 
     if (teamMap.size === 0) {

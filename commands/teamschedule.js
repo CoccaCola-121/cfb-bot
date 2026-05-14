@@ -258,10 +258,10 @@ module.exports = {
         .setDescription(chunk.join('\n'))
         .setFooter({
           text: targetYear > currentSeason
-            ? `Season ${result.season} · OOC scheduled so far`
+            ? 'NZCFL Info'
             : useLiveSchedule
-            ? `Season ${result.season}`
-            : `Season ${result.season} · H2H history`
+            ? 'Football GM export'
+            : 'NZCFL Tracker 2.0 + Football GM export + H2H overrides'
         })
     );
 

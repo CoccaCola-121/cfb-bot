@@ -304,7 +304,7 @@ module.exports = {
         .setColor(0x27ae60)
         .setDescription(`Conference: **${confAbbrev}**\n${avgLine}\n${appLine}`)
         .addFields(fields)
-        .setFooter({ text: `NZCFL Info • ${TARGET_YEAR}` })
+        .setFooter({ text: 'NZCFL Info' })
         .setTimestamp();
 
       const logo = getTeamLogoUrl(team);
@@ -394,7 +394,7 @@ module.exports = {
       .setTitle(`📊 NZCFL ${titleSuffix}${confFilter ? ` · ${confFilter}` : ''}`)
       .setColor(0x27ae60)
       .setDescription(`${lines.join('\n')}\n\n⭐ = App School (${APP_SCHOOL_REQUIRED_COUNT}+ top-${APP_SCHOOL_THRESHOLD} ranks)`)
-      .setFooter({ text: `NZCFL Info •` })
+      .setFooter({ text: 'NZCFL Info' })
       .setTimestamp();
 
     if (confFilter && leagueData) {

@@ -238,6 +238,11 @@ function build247Data(rows) {
   return { teamMap, recruitMap };
 }
 
+function formatClassRank(rank, tied = false) {
+  if (!rank) return null;
+  return tied ? `T-${ordinal(rank)}` : ordinal(rank);
+}
+
 function get247TeamInfo(team, team247Map) {
   for (const alias of sheetsGetTeamAliases(team)) {
     if (team247Map.has(alias)) {
@@ -310,6 +315,7 @@ function buildRecruitingSummaryForTeam(allRows, team, team247Map, recruit247Map)
       top100: 0,
       bestRecruit: null,
       rank: class247.teamRank ?? null,
+      tied: Boolean(class247.tied),
     };
   }
 
@@ -326,6 +332,7 @@ function buildRecruitingSummaryForTeam(allRows, team, team247Map, recruit247Map)
     top100,
     bestRecruit,
     rank: class247?.teamRank ?? null,
+    tied: Boolean(class247?.tied),
   };
 }
 
@@ -482,8 +489,9 @@ module.exports = {
     const recruitingLine2Parts = [
       `Class Score: **${recruitingInfo?.classScore?.toFixed?.(3) ?? '?'}**`,
     ];
-    if (recruitingInfo?.rank !== null && recruitingInfo?.rank !== undefined) {
-      recruitingLine2Parts.push(`Class Rank: **${recruitingInfo.rank}**`);
+    const formattedClassRank = formatClassRank(recruitingInfo?.rank, recruitingInfo?.tied);
+    if (formattedClassRank) {
+      recruitingLine2Parts.push(`Class Rank: **${formattedClassRank}**`);
     }
     const recruitingLine2 = recruitingLine2Parts.join('  •  ');
 
@@ -529,7 +537,7 @@ module.exports = {
         }
       )
       .setFooter({
-        text: 'Stats from latest loaded Football GM export + NZCFL Info recruiting sheet + 247 recruiting ranks',
+        text: `Football GM export + NZCFL Info + ${RECRUITING_RANKS_SHEET_NAME} + Current Rankings`,
       })
       .setTimestamp();
 

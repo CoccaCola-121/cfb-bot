@@ -428,7 +428,7 @@ module.exports = {
         .setColor(0x2b4b8c)
         .setDescription(`**${c.team}**  •  ${c.years} season${c.years !== 1 ? 's' : ''} coached`)
         .addFields(fields)
-        .setFooter({ text: 'Active coaches only • NZCFL Coach Sheet' })
+        .setFooter({ text: 'NZCFL Info + NZCFL Coach Resume 2.0 + Football GM export' })
         .setTimestamp();
 
       if (logo) embed.setThumbnail(logo);

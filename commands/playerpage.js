@@ -539,7 +539,7 @@ module.exports = {
       .setTitle(`🧾 ${`${player.firstName || ''} ${player.lastName || ''}`.trim()}`)
       .setColor(0x95a5a6)
       .addFields(...fields)
-      .setFooter({ text: 'Short player page from latest Football GM export' })
+      .setFooter({ text: 'Football GM export + NZCFL Info' })
       .setTimestamp();
 
     if (logoUrl) {

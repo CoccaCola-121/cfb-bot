@@ -121,7 +121,7 @@ module.exports = {
         )
         .setColor(0x8b1a1a)
         .setDescription(chunk.join('\n'))
-        .setFooter({ text: FOOTER_TEXT })
+        .setFooter({ text: 'Football GM export' })
     );
 
     return interaction.editReply({ embeds: embeds.slice(0, 10) });

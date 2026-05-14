@@ -146,7 +146,7 @@ async function teamMode(interaction) {
       { name: '🧓 Fathers (they dominate)', value: trimField(fathersText) },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · ${rows.length} qualifying opponent${rows.length === 1 ? '' : 's'}`,
+      text: 'NZCFL Tracker 2.0 + Football GM export + H2H overrides',
     })
     .setTimestamp();
 
@@ -222,7 +222,7 @@ async function coachMode(interaction) {
       { name: '🧓 Fathers (they dominate)', value: trimField(fathersText) },
     )
     .setFooter({
-      text: `${enriched.length} game${enriched.length === 1 ? '' : 's'} · ${rows.length} qualifying opponent${rows.length === 1 ? '' : 's'}`,
+      text: 'NZCFL Tracker 2.0 + Football GM export + H2H overrides',
     })
     .setTimestamp();
 

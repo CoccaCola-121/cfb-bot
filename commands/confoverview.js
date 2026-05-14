@@ -250,7 +250,7 @@ module.exports = {
           inline: false,
         }
       )
-      .setFooter({ text: 'Aggregated from latest Football GM export' })
+      .setFooter({ text: 'Football GM export + NZCFL Info' })
       .setTimestamp();
 
     const logo = getConferenceLogoUrl(leagueData, confAbbrev);

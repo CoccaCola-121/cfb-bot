@@ -330,7 +330,7 @@ module.exports = {
       .setTitle(`🏈 Coach Leaderboard — ${sortLabels[sort] || 'Formula'}`)
       .setColor(0x2b4b8c)
       .setDescription(lines.join('\n\n'))
-      .setFooter({ text: 'Active coaches only · Career record from resume sheet' })
+      .setFooter({ text: 'NZCFL Info + NZCFL Coach Resume 2.0 + Football GM export' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

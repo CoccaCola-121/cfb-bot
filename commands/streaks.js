@@ -154,7 +154,7 @@ async function teamMode(interaction, vs, activeOnly) {
       { name: lossHeader, value: trimField(lossText) },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · ${runs.length} ${activeOnly ? 'active ' : ''}streak${runs.length === 1 ? '' : 's'} tracked`,
+      text: 'NZCFL Tracker 2.0 + Football GM export + H2H overrides',
     })
     .setTimestamp();
 
@@ -242,7 +242,7 @@ async function coachMode(interaction, vs, activeOnly) {
       { name: lossHeader, value: trimField(lossText) },
     )
     .setFooter({
-      text: `${enriched.length} game${enriched.length === 1 ? '' : 's'} · ${runs.length} ${activeOnly ? 'active ' : ''}streak${runs.length === 1 ? '' : 's'} tracked`,
+      text: 'NZCFL Tracker 2.0 + Football GM export + H2H overrides',
     })
     .setTimestamp();
 

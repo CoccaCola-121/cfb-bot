@@ -67,7 +67,7 @@ module.exports = {
       .setTitle(`${meta.emoji} ${meta.label} Leaders`)
       .setColor(0xf39c12)
       .setDescription(lines.join('\n'))
-      .setFooter({ text: 'Top 10 team leaderboard from latest Football GM export' })
+      .setFooter({ text: 'Football GM export' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

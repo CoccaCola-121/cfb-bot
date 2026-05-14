@@ -429,8 +429,8 @@ module.exports = {
       .setDescription(lines.join('\n'))
       .setFooter({
         text: explicitDepthFound
-          ? 'Current injuries + redshirts • Starter slots from depth chart where available'
-          : 'Current injuries + redshirts • Starter slots derived when chart unavailable',
+          ? 'Football GM export • Starter slots from depth chart where available'
+          : 'Football GM export • Starter slots derived when chart unavailable',
       })
       .setTimestamp();
 

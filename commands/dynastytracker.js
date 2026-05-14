@@ -311,7 +311,7 @@ module.exports = {
       .setColor(0x16a085)
       .setDescription(lines.join('\n'))
       .setFooter({
-        text: `Active dynasties through ${currentSeason} only • ${allRuns.length} qualifying active run${allRuns.length === 1 ? '' : 's'}`,
+        text: 'NZCFL Coach Resume 2.0 + NZCFL Info + Football GM export',
       })
       .setTimestamp();
 

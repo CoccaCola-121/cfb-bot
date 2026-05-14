@@ -180,7 +180,7 @@ module.exports = {
       .setTitle(title)
       .setColor(0x8e44ad)
       .setDescription(lines.join('\n'))
-      .setFooter({ text: `${targetYear} recruiting class • NZCFL Info + 247 ranks` })
+      .setFooter({ text: `NZCFL Info + ${RANKS_SHEET_NAME}` })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

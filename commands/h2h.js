@@ -225,7 +225,7 @@ async function teamMode(interaction, opponent) {
       { name: 'Notable', value: trimField(notable || '—') },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · tracked since ${TRACKED_SINCE_SEASON} · csv ${counts.csv} · live ${counts.json} · overrides ${counts.override}`,
+      text: 'NZCFL Tracker 2.0 + Football GM export + H2H overrides',
     })
     .setTimestamp();
 
@@ -340,7 +340,7 @@ async function coachMode(interaction, opponent) {
       { name: 'Notable', value: trimField(notable || '—') },
     )
     .setFooter({
-      text: `${games.length} game${games.length === 1 ? '' : 's'} · tracked since ${TRACKED_SINCE_SEASON} · csv ${counts.csv} · live ${counts.json} · overrides ${counts.override}`,
+      text: 'NZCFL Tracker 2.0 + Football GM export + H2H overrides',
     })
     .setTimestamp();
 

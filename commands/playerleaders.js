@@ -405,7 +405,7 @@ module.exports = {
       rows.push(tieNote);
     }
 
-    const footerParts = [`Top ${TOP_N}`, 'Data from latest Football GM export'];
+    const footerParts = ['Football GM export'];
     if (minimumLabel) {
       footerParts.unshift(minimumLabel);
     }

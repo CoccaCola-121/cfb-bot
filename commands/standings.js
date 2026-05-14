@@ -302,7 +302,7 @@ module.exports = {
         .setColor(0x2e86c1)
         .setDescription(lines.join('\n\n'))
         .setFooter({
-          text: 'Sorted by conference record, then head-to-head, then division record. Eliminated = cannot catch division leader.',
+          text: 'Football GM export • Sorted by conference record, then head-to-head, then division record. Eliminated = cannot catch division leader.',
         });
 
       if (conferenceLogo) {

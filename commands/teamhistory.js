@@ -297,7 +297,7 @@ module.exports = {
       .setTitle(`📜 ${teamLabel} (${team.abbrev}) — Program History`)
       .setColor(0x2c3e50)
       .addFields(fields)
-      .setFooter({ text: 'Resume sheet history + current season JSON record' })
+      .setFooter({ text: 'NZCFL Coach Resume 2.0 + Football GM export' })
       .setTimestamp();
 
     const logo = getTeamLogoUrl(team);

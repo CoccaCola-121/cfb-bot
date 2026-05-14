@@ -292,7 +292,7 @@ module.exports = {
           inline: false,
         }
       )
-      .setFooter({ text: 'Current-season comparison from latest Football GM export' })
+      .setFooter({ text: 'Football GM export' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

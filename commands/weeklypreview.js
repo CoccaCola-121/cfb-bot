@@ -159,7 +159,7 @@ module.exports = {
       .setColor(0x8e44ad)
       .setDescription(lines.join('\n\n'))
       .setFooter({
-        text: `Ranked across ${ranked.length} upcoming game${ranked.length === 1 ? '' : 's'}.`,
+        text: 'Football GM export',
       })
       .setTimestamp();
 
