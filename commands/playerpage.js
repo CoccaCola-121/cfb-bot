@@ -379,22 +379,6 @@ function getPreviousTeams(player, teamMap) {
     .map((team) => `${team.region} ${team.name}`.trim());
 }
 
-function getJerseyNumber(player) {
-  if (typeof player.jerseyNumber === 'string' || typeof player.jerseyNumber === 'number') {
-    return player.jerseyNumber;
-  }
-
-  const latestRatings = getLatestRatings(player);
-  if (
-    latestRatings &&
-    (typeof latestRatings.jerseyNumber === 'string' || typeof latestRatings.jerseyNumber === 'number')
-  ) {
-    return latestRatings.jerseyNumber;
-  }
-
-  return '?';
-}
-
 function getHomeState(player) {
   if (player?.born && typeof player.born.loc === 'string' && player.born.loc.trim()) {
     return player.born.loc.trim();
@@ -503,12 +487,10 @@ module.exports = {
     } else {
       const age = getCurrentAge(player, currentSeason);
       const grade = getGradeLabel(player, currentSeason);
-      const jerseyNumber = getJerseyNumber(player);
 
       profileLines = [
         `Team: **${teamDisplay}**`,
         `Position: **${pos}**`,
-        `Jersey: **#${jerseyNumber}**`,
         `Age: **${age}**`,
         `Grade: **${grade}**`,
         `Home State: **${homeState}**`,
