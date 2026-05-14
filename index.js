@@ -6,6 +6,7 @@
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs   = require('fs');
 const path = require('path');
+const { isCommandEnabled } = require('./config/enabledCommands');
 
 require('dotenv').config();
 
@@ -25,6 +26,10 @@ const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))
 for (const file of commandFiles) {
   const command = require(path.join(commandsPath, file));
   if (command.data && command.execute) {
+    if (!isCommandEnabled(command.data.name)) {
+      console.log(`⏭️ Skipped disabled command: /${command.data.name}`);
+      continue;
+    }
     client.commands.set(command.data.name, command);
     console.log(`✅ Loaded command: /${command.data.name}`);
   }

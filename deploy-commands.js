@@ -7,6 +7,7 @@
 const { REST, Routes } = require('discord.js');
 const fs   = require('fs');
 const path = require('path');
+const { isCommandEnabled } = require('./config/enabledCommands');
 require('dotenv').config();
 
 const commands = [];
@@ -15,7 +16,7 @@ const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))
 
 for (const file of commandFiles) {
   const command = require(path.join(commandsPath, file));
-  if (command.data) {
+  if (command.data && isCommandEnabled(command.data.name)) {
     commands.push(command.data.toJSON());
   }
 }
