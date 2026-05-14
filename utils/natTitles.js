@@ -48,7 +48,7 @@ const NAT_TITLE_ENTRIES = [
   { year: '2048', aliases: ['jt', '@jt'] },
   { year: '2049', aliases: ['poke', '@poke'] },
   { year: '2050', aliases: ['jt', '@jt'] },
-  { year: '2051', aliases: ['coachmrcap', '@coachmrcap', 'mrcap', '@mr.cap'] },
+  { year: '2051', aliases: ['mr.goodcookie', '@mr.goodcookie', 'mrgoodcookie', 'goodcookie', 'coachmrcap', '@coachmrcap', 'mrcap', '@mr.cap'] },
   { year: '2052', aliases: ['dogwoodmaple', '@dogwoodmaple'] },
   { year: '2053', aliases: ['dippyflip', '@dippyflip'] },
   { year: '2054', aliases: ['secret', '@secret'] },

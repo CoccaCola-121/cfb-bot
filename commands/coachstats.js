@@ -40,6 +40,7 @@ function parseCoachCsv(rows) {
 
     coaches.push({
       coach, team,
+      sheetRank:   ni(2),     // column C — same rank /valueboard displays
       years:       ni(4),
       promFailed:  ni(5),
       promKept:    ni(6),
@@ -126,29 +127,20 @@ function parseResumeSheet(rows) {
   return map;
 }
 
-// ── Ranking formula ──────────────────────────────────────────
-// Sustained excellence (win %) dominates — a great-record coach with
-// no titles should clearly outrank a sub-.500 coach with one conf
-// championship. Wins reward longevity. Nat titles still kingmake.
-// Calibration target: a .744 / 58-20 coach with 1 PA + 3 bowl wins
-// should be ~40 points clear of a .505 / 52-51 coach with 1 CC + 2 BW
-// (i.e., several rank positions, not just one).
-function computeScore(c, resume) {
-  if (!resume || c.years < 1) return 0;
-  return (resume.wins   * 1.0)
-       + (resume.pct    * 180)
-       + (c.natTitles   * 150)
-       + (c.confTitles  * 18)
-       + (c.divTitles   * 8)
-       + (c.playoffs    * 8)
-       + (c.bowlWins    * 4);
-}
-
+// ── Ranking source ──────────────────────────────────────────
+// Coach rank comes straight from the NZCFL Info Coach sheet
+// (column C) — the same source /valueboard uses. No formula here:
+// whatever the sheet says is what gets displayed, so the two
+// commands always agree.
 function computeRanks(coaches) {
   return [...coaches]
-    .map(c => ({ ...c, score: computeScore(c, c.resume) }))
-    .sort((a, b) => b.score - a.score)
-    .map((c, i) => ({ ...c, rank: i + 1 }));
+    .map(c => ({ ...c, rank: c.sheetRank > 0 ? c.sheetRank : null }))
+    .sort((a, b) => {
+      if (a.rank == null && b.rank == null) return 0;
+      if (a.rank == null) return 1;
+      if (b.rank == null) return -1;
+      return a.rank - b.rank;
+    });
 }
 
 function findTeamByName(leagueData, name) {
@@ -380,7 +372,7 @@ module.exports = {
           value: [
             `Record: **${recStr}**`,
             `Years:  **${c.years}**`,
-            `Rank:   **#${c.rank}**`,
+            `Rank:   **${c.rank ? `#${c.rank}` : '—'}**`,
           ].join('\n'),
           inline: true,
         },
