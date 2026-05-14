@@ -23,21 +23,41 @@ for (const file of commandFiles) {
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
+// Collect all guild IDs we want to register commands in.
+// Supports the legacy GUILD_ID var, the NZCFL production guild, and the test guild.
+const guildIds = [
+  process.env.NZCFL_GUILD_ID || process.env.GUILD_ID,
+  process.env.TEST_GUILD_ID,
+]
+  .filter(Boolean)              // remove undefined/empty values
+  .filter((id, i, arr) => arr.indexOf(id) === i); // de-dupe in case GUILD_ID === NZCFL_GUILD_ID
+
 (async () => {
-  try {
-    console.log(`Registering ${commands.length} slash command(s)...`);
+  if (guildIds.length === 0) {
+    console.error('❌ No guild IDs found. Set NZCFL_GUILD_ID (or GUILD_ID) and/or TEST_GUILD_ID.');
+    process.exit(1);
+  }
 
-    await rest.put(
-      Routes.applicationGuildCommands(
-        process.env.CLIENT_ID,
-        process.env.GUILD_ID
-      ),
-      { body: commands }
-    );
+  console.log(`Registering ${commands.length} slash command(s) in ${guildIds.length} guild(s)...`);
 
+  let successCount = 0;
+  for (const guildId of guildIds) {
+    try {
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
+        { body: commands }
+      );
+      console.log(`   ✅ Registered in guild ${guildId}`);
+      successCount++;
+    } catch (error) {
+      console.error(`   ❌ Failed to register in guild ${guildId}:`, error.message || error);
+    }
+  }
+
+  if (successCount === guildIds.length) {
     console.log('✅ All slash commands registered successfully!');
     console.log('   Commands will appear in Discord within a few seconds.');
-  } catch (error) {
-    console.error('❌ Failed to register commands:', error);
+  } else {
+    console.log(`⚠️  Registered in ${successCount}/${guildIds.length} guilds. See errors above.`);
   }
 })();
