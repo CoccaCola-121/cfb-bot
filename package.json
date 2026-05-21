@@ -7,10 +7,11 @@
     "start": "node index.js",
     "deploy": "node deploy-commands.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1",
-    "node-fetch": "^2.7.0",
-    "googleapis": "^140.0.1"
+    "dotenv": "^16.3.1"
   }
 }

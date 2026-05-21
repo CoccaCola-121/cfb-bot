@@ -3,7 +3,12 @@
 //  Entry point: loads config, registers commands, starts bot
 // ============================================================
 
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  Collection,
+  Options,
+} = require('discord.js');
 const fs   = require('fs');
 const path = require('path');
 const { isCommandEnabled } = require('./config/enabledCommands');
@@ -11,11 +16,49 @@ const { isCommandEnabled } = require('./config/enabledCommands');
 require('dotenv').config();
 
 // ── Create the Discord client ────────────────────────────────
+//
+// We only handle slash-command interactions (`interactionCreate`),
+// so we only need the Guilds intent. We also aggressively disable
+// caches we never read from to keep resident memory low on small
+// hosts like Railway.
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-  ],
+  intents: [GatewayIntentBits.Guilds],
+
+  // Keep only the bot itself in user/member caches; disable everything
+  // else that discord.js otherwise grows unbounded.
+  makeCache: Options.cacheWithLimits({
+    ...Options.DefaultMakeCacheSettings,
+    MessageManager: 0,
+    ReactionManager: 0,
+    PresenceManager: 0,
+    VoiceStateManager: 0,
+    ThreadManager: 0,
+    ThreadMemberManager: 0,
+    StageInstanceManager: 0,
+    GuildScheduledEventManager: 0,
+    GuildStickerManager: 0,
+    GuildEmojiManager: 0,
+    GuildBanManager: 0,
+    GuildInviteManager: 0,
+    AutoModerationRuleManager: 0,
+    GuildMemberManager: {
+      maxSize: 1,
+      keepOverLimit: (member) => member.id === member.client.user.id,
+    },
+    UserManager: {
+      maxSize: 1,
+      keepOverLimit: (user) => user.id === user.client.user.id,
+    },
+  }),
+
+  // Periodically sweep anything that does sneak into the caches.
+  sweepers: {
+    ...Options.DefaultSweeperSettings,
+    messages: { interval: 300, lifetime: 60 },
+    users: { interval: 3600, filter: () => (u) => u.id !== u.client.user.id },
+    guildMembers: { interval: 3600, filter: () => (m) => m.id !== m.client.user.id },
+    threads: { interval: 3600, lifetime: 1800 },
+  },
 });
 
 // ── Load all slash commands from /commands folder ────────────
@@ -39,7 +82,25 @@ for (const file of commandFiles) {
 client.once('ready', () => {
   console.log(`\n🏈 Bot is online as ${client.user.tag}`);
   console.log(`   Serving ${client.guilds.cache.size} server(s)\n`);
+
+  // One-time memory snapshot so you can see baseline RSS in Railway logs.
+  const mu = process.memoryUsage();
+  console.log(
+    `   Memory  rss=${(mu.rss / 1024 / 1024).toFixed(1)}MB ` +
+    `heapUsed=${(mu.heapUsed / 1024 / 1024).toFixed(1)}MB ` +
+    `external=${(mu.external / 1024 / 1024).toFixed(1)}MB`
+  );
 });
+
+// Recurring memory log every 5 minutes so you can watch it trend over
+// time in the Railway dashboard. Comment out if it's too noisy.
+setInterval(() => {
+  const mu = process.memoryUsage();
+  console.log(
+    `[mem] rss=${(mu.rss / 1024 / 1024).toFixed(1)}MB ` +
+    `heap=${(mu.heapUsed / 1024 / 1024).toFixed(1)}MB`
+  );
+}, 5 * 60 * 1000).unref();
 
 // ── Handle slash command interactions ───────────────────────
 client.on('interactionCreate', async (interaction) => {

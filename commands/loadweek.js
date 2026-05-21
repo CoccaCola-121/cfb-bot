@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fetch = require('node-fetch');
 const zlib = require('zlib');
 const { saveLeagueData } = require('../utils/data');
 const { invalidateSheetCache } = require('../utils/sheetCache');

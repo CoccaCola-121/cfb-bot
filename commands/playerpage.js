@@ -9,6 +9,7 @@ const {
   getLatestPosition,
   getLatestPlayerStats,
   findPlayerByName,
+  findTeamByName,
   getCurrentSeason,
   getTeamName,
   safeNumber,
@@ -391,6 +392,47 @@ function getHomeState(player) {
   return '?';
 }
 
+function scorePlayerNameMatch(player, query, currentSeason) {
+  const fullName = `${player.firstName || ''} ${player.lastName || ''}`.trim();
+  const hasCurrentStats = !!getLatestPlayerStats(player, currentSeason, false);
+
+  let score = 0;
+  const fullLower = fullName.toLowerCase();
+  const q = String(query || '').toLowerCase().trim();
+
+  if (fullLower === q) score += 100;
+  if (fullLower.startsWith(q)) score += 40;
+  if (fullLower.includes(q)) score += 20;
+  if ((player.lastName || '').toLowerCase() === q) score += 15;
+  if (hasCurrentStats) score += 10;
+  if (player.tid >= 0) score += 5;
+  if (player.tid === -2) score += 3;
+
+  return { score, fullName };
+}
+
+function findPlayerByNameForTeam(leagueData, query, teamQuery) {
+  const team = findTeamByName(leagueData, teamQuery);
+  if (!team) {
+    return { player: null, team: null, teamFound: false };
+  }
+
+  const currentSeason = getCurrentSeason(leagueData);
+  const candidates = (leagueData.players || [])
+    .filter((player) => player.tid === team.tid)
+    .map((player) => {
+      const { score, fullName } = scorePlayerNameMatch(player, query, currentSeason);
+      return { player, score, fullName };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.fullName.localeCompare(b.fullName);
+    });
+
+  return { player: candidates[0]?.player || null, team, teamFound: true };
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('playerpage')
@@ -400,6 +442,12 @@ module.exports = {
         .setName('player')
         .setDescription('Player name')
         .setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('team')
+        .setDescription('Optional team filter (for duplicate names), e.g. MSU')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -411,9 +459,25 @@ module.exports = {
     }
 
     const query = interaction.options.getString('player');
-    const player = findPlayerByName(leagueData, query);
+    const teamQuery = interaction.options.getString('team');
+
+    let player;
+    if (teamQuery) {
+      const scoped = findPlayerByNameForTeam(leagueData, query, teamQuery);
+      if (!scoped.teamFound) {
+        return interaction.editReply(`❌ Could not find a team matching **${teamQuery}**.`);
+      }
+      player = scoped.player;
+    } else {
+      player = findPlayerByName(leagueData, query);
+    }
 
     if (!player) {
+      if (teamQuery) {
+        return interaction.editReply(
+          `❌ Could not find a player matching **${query}** on team **${teamQuery}**.`
+        );
+      }
       return interaction.editReply(`❌ Could not find a player matching **${query}**.`);
     }
 

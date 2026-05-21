@@ -7,9 +7,7 @@
   const zlib = require('zlib');
   const { REG_SEASON_WEEKS } = require('./weekLabels');
 
-  const fetchFn = globalThis.fetch
-    ? globalThis.fetch.bind(globalThis)
-    : require('node-fetch');
+  const fetchFn = globalThis.fetch.bind(globalThis);
 
   // Prefer Railway mounted volume if available.
   // Fallback to DATA_DIR, then local ./data for dev.
@@ -221,6 +219,18 @@
   // latest file's path or mtime changes — saves a 39 MB gunzip + JSON.parse
   // (~hundreds of ms) on every command invocation.
   let _leagueCache = { path: null, mtime: 0, data: null };
+  const LEAGUE_CACHE_IDLE_MS =
+    Number(process.env.LEAGUE_CACHE_IDLE_MS) || 10 * 60 * 1000;
+  let _leagueCacheIdleTimer = null;
+
+  function scheduleLeagueCacheEviction() {
+    if (_leagueCacheIdleTimer) clearTimeout(_leagueCacheIdleTimer);
+    _leagueCacheIdleTimer = setTimeout(() => {
+      _leagueCache = { path: null, mtime: 0, data: null };
+      _leagueCacheIdleTimer = null;
+    }, LEAGUE_CACHE_IDLE_MS);
+    if (_leagueCacheIdleTimer.unref) _leagueCacheIdleTimer.unref();
+  }
 
   function listLeagueFiles() {
     return fs.readdirSync(DATA_DIR)
@@ -241,6 +251,7 @@
     if (_leagueCache.data &&
         _leagueCache.path === latest.path &&
         _leagueCache.mtime === latest.time) {
+      scheduleLeagueCacheEviction();
       return _leagueCache.data;
     }
 
@@ -283,6 +294,7 @@
       }
 
       _leagueCache = { path: latest.path, mtime: latest.time, data: parsed };
+      scheduleLeagueCacheEviction();
       return parsed;
     } catch {
       return null;
@@ -313,6 +325,10 @@
   // Force-clear the in-memory cache (used by /loadweek and /reloadcache).
   function invalidateLeagueCache() {
     _leagueCache = { path: null, mtime: 0, data: null };
+    if (_leagueCacheIdleTimer) {
+      clearTimeout(_leagueCacheIdleTimer);
+      _leagueCacheIdleTimer = null;
+    }
   }
 
   function pruneOldLeagueFiles() {
