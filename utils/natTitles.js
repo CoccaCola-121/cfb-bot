@@ -57,6 +57,7 @@ const NAT_TITLE_ENTRIES = [
   { year: '2057', aliases: ['coachrich2x', '@coachrich2x', 'coachrich'] },
   { year: '2058', aliases: ['amok', '@amok'] },
   { year: '2059', aliases: ['legend', '@legend'] },
+  { year: '2061', aliases: ['speedshark', '@speedshark'] },
 ];
 
 // Return the years a given coach won the national title (alias-matched).
