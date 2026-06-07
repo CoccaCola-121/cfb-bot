@@ -246,7 +246,7 @@ module.exports = {
     const liveMode = isLive(leagueData);
     function patchCurrentSeason(coach, resume) {
       if (!liveMode) return resume;
-      if (!leagueData || !currentSeason || !resume) return resume;
+      if (!leagueData || !currentSeason) return resume;
       const leagueTeam = findTeamByName(leagueData, coach.team);
       if (!leagueTeam) return resume;
       const { getLiveTeamRecord } = require('../utils/data');
@@ -255,22 +255,28 @@ module.exports = {
 
       const liveW = liveTotals.wins;
       const liveL = liveTotals.losses;
-      if (liveW + liveL === 0) return resume;
+      const baseResume = resume || {
+        record: '0-0',
+        wins: 0,
+        losses: 0,
+        pct: 0,
+        history: [],
+      };
 
-      const existingYear = resume.history.find(h => h.year === currentSeason && h.record);
+      const existingYear = baseResume.history.find(h => h.year === currentSeason && h.record);
       const existingMatch = existingYear?.record?.match(/^(\d+)-(\d+)$/);
       const existingW = existingMatch ? Number(existingMatch[1]) : 0;
       const existingL = existingMatch ? Number(existingMatch[2]) : 0;
 
-      const totalW = resume.wins - existingW + liveW;
-      const totalL = resume.losses - existingL + liveL;
+      const totalW = baseResume.wins - existingW + liveW;
+      const totalL = baseResume.losses - existingL + liveL;
       const liveRecord = `${liveW}-${liveL}`;
       const newHistory = [
-        ...resume.history.filter(h => h.year !== currentSeason),
+        ...baseResume.history.filter(h => h.year !== currentSeason),
         { year: currentSeason, record: liveRecord, team: coach.team, livePatched: true },
       ].sort((a, b) => +a.year - +b.year);
       return {
-        ...resume,
+        ...baseResume,
         wins:   totalW,
         losses: totalL,
         pct:    totalW + totalL > 0 ? totalW / (totalW + totalL) : 0,
