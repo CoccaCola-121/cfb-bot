@@ -1071,7 +1071,7 @@
 
     const weekMap = getCurrentSeasonWeekMap(leagueData);
 
-    const games = getGamesForCurrentSeason(leagueData)
+    const playedGames = getGamesForCurrentSeason(leagueData)
       .filter((game) => getGameTeams(game).some((t) => t.tid === team.tid))
       .map((game) => {
         const teams = getGameTeams(game);
@@ -1100,8 +1100,41 @@
           result,
         };
       })
-      .filter(Boolean)
-      .sort((a, b) => (a.week ?? 999) - (b.week ?? 999));
+      .filter(Boolean);
+
+    const scheduledGames = (Array.isArray(leagueData?.schedule) ? leagueData.schedule : [])
+      .map((game) => {
+        const homeTid = game.homeTid ?? game.home?.tid ?? game.teams?.[0]?.tid;
+        const awayTid = game.awayTid ?? game.away?.tid ?? game.teams?.[1]?.tid;
+        const isHome = Number(homeTid) === Number(team.tid);
+        const isAway = Number(awayTid) === Number(team.tid);
+        if (!isHome && !isAway) return null;
+
+        const oppTid = isHome ? awayTid : homeTid;
+        const opponent = getTeamByTid(leagueData, oppTid);
+        const week = getGameWeek(game, weekMap);
+
+        return {
+          week,
+          weekLabel: week !== null ? `Week ${week}` : null,
+          opponentTid: oppTid,
+          opponent: getTeamName(opponent),
+          opponentAbbrev: opponent?.abbrev || '?',
+          isFuture: true,
+          home: isHome,
+          away: isAway,
+          matchup: isHome
+            ? `vs ${opponent?.abbrev || getTeamName(opponent)}`
+            : `@ ${opponent?.abbrev || getTeamName(opponent)}`,
+        };
+      })
+      .filter(Boolean);
+
+    const games = [...playedGames, ...scheduledGames].sort((a, b) => {
+      const weekDiff = (a.week ?? 999) - (b.week ?? 999);
+      if (weekDiff !== 0) return weekDiff;
+      return Number(Boolean(a.isFuture)) - Number(Boolean(b.isFuture));
+    });
 
     return {
       season: currentSeason,
