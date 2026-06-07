@@ -670,7 +670,9 @@
   }
 
   function getCurrentSeasonWeekMap(leagueData) {
-    return buildGameDayWeekMap(getGamesForCurrentSeason(leagueData));
+    const currentSeasonGames = getGamesForCurrentSeason(leagueData);
+    const scheduledGames = Array.isArray(leagueData?.schedule) ? leagueData.schedule : [];
+    return buildGameDayWeekMap([...currentSeasonGames, ...scheduledGames]);
   }
 
   function inferWeekFromGameDay(day, dayWeekMap = null) {
