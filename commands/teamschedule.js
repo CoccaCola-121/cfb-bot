@@ -8,7 +8,6 @@ const { getUserTeam } = require('../utils/userMap');
 const { getWeekLabel } = require('../utils/weekLabels');
 const { findMatchingTeam } = require('../utils/sheets');
 const { loadAllGames, sameTeam } = require('../utils/h2h');
-const { isLive } = require('../utils/seasonMode');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 
 const H2H_TRACKED_SINCE_SEASON = 2025;
@@ -209,13 +208,20 @@ module.exports = {
 
     const currentSeason = Number(getCurrentSeason(leagueData));
     const targetYear = yearArg || currentSeason;
-    const useLiveSchedule = targetYear === currentSeason && isLive(leagueData);
+    const isCurrentSeason = targetYear === currentSeason;
 
     let result;
     if (targetYear > currentSeason) {
       result = await getFutureTeamSchedule(team, targetYear);
-    } else if (useLiveSchedule) {
+    } else if (isCurrentSeason) {
+      // Prefer the export for the current season regardless of season mode.
+      // Upcoming games live in leagueData.schedule, while completed games live
+      // in leagueData.games. Falling back to H2H here can hide the remaining
+      // schedule even when the export already contains it.
       result = getTeamSchedule(leagueData, team.abbrev);
+      if (!result || result.games.length === 0) {
+        result = await getHistoricalTeamSchedule(leagueData, team, targetYear);
+      }
     } else {
       result = await getHistoricalTeamSchedule(leagueData, team, targetYear);
     }
@@ -259,7 +265,7 @@ module.exports = {
         .setFooter({
           text: targetYear > currentSeason
             ? 'NZCFL Info'
-            : useLiveSchedule
+            : isCurrentSeason
             ? 'Football GM export'
             : 'NZCFL Tracker 2.0 + Football GM export + H2H overrides'
         })
