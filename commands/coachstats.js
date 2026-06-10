@@ -211,6 +211,29 @@ function buildTeamHistory(history, currentSeason) {
   });
 }
 
+function getCoachstatsCurrentSeason(leagueData) {
+  if (!leagueData) return null;
+
+  const seasons = [];
+  const topLevelSeason = Number(getCurrentSeason(leagueData));
+  if (Number.isFinite(topLevelSeason)) seasons.push(topLevelSeason);
+
+  for (const team of leagueData.teams || []) {
+    for (const season of team.seasons || []) {
+      const year = Number(season?.season);
+      if (Number.isFinite(year)) seasons.push(year);
+    }
+  }
+
+  for (const game of leagueData.games || []) {
+    const year = Number(game?.season);
+    if (Number.isFinite(year)) seasons.push(year);
+  }
+
+  if (seasons.length === 0) return null;
+  return String(Math.max(...seasons));
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('coachstats')
@@ -235,7 +258,7 @@ module.exports = {
     const resumeMap  = parseResumeSheet(resumeRows);
     const csvCoaches = parseCoachCsv(csvRows);
     const leagueData = getLatestLeagueData();
-    const currentSeason = leagueData ? String(getCurrentSeason(leagueData)) : null;
+    const currentSeason = getCoachstatsCurrentSeason(leagueData);
 
     // Patch current season live record into resume total
     // The resume sheet Total column won't include the in-progress season,
@@ -249,8 +272,11 @@ module.exports = {
       if (!leagueData || !currentSeason) return resume;
       const leagueTeam = findTeamByName(leagueData, coach.team);
       if (!leagueTeam) return resume;
+      const liveSeasonNumber = Number(currentSeason);
+      if (!Number.isFinite(liveSeasonNumber)) return resume;
+
       const { getLiveTeamRecord } = require('../utils/data');
-      const liveTotals = getLiveTeamRecord(leagueData, leagueTeam, getCurrentSeason(leagueData));
+      const liveTotals = getLiveTeamRecord(leagueData, leagueTeam, liveSeasonNumber);
       if (!liveTotals) return resume;
 
       const liveW = liveTotals.wins;
