@@ -13,12 +13,11 @@ const {
   safeNumber,
   getLiveTeamRecord,
 } = require('../utils/data');
-const { normalize } = require('../utils/sheets');
+const { normalize, findMatchingTeam } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
-const { getUserTeam } = require('../utils/userMap');
+const { getUserTeam, loadCoachIndex } = require('../utils/userMap');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
-const { isLive } = require('../utils/seasonMode');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
@@ -152,7 +151,21 @@ function teamChampionshipYears(teamAliasesNorm, allRows) {
   return out;
 }
 
-function mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason) {
+async function findCurrentCoachForTeam(leagueData, team) {
+  if (!leagueData || !team) return null;
+
+  const coachIndex = await loadCoachIndex();
+  for (const { coach, team: coachTeam } of coachIndex.values()) {
+    const matched = findMatchingTeam(leagueData, coachTeam);
+    if (matched && Number(matched.tid) === Number(team.tid)) {
+      return coach || null;
+    }
+  }
+
+  return null;
+}
+
+function mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason, currentCoach = null) {
   const season = getLatestTeamSeason(team, currentSeason);
   if (!season) return teamRows;
 
@@ -172,6 +185,7 @@ function mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason) {
     const next = [...teamRows];
     next[idx] = {
       ...next[idx],
+      coach: next[idx].coach || currentCoach,
       wins: currentWins,
       losses: currentLosses,
       team: next[idx].team || getTeamName(team),
@@ -179,7 +193,18 @@ function mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason) {
     return next;
   }
 
-  return teamRows;
+  if (!currentCoach) return teamRows;
+
+  return [
+    ...teamRows,
+    {
+      year: String(currentSeason),
+      coach: currentCoach,
+      team: getTeamName(team),
+      wins: currentWins,
+      losses: currentLosses,
+    },
+  ];
 }
 
 module.exports = {
@@ -240,12 +265,8 @@ module.exports = {
     const allRows = parseResumeRows(resumeRows);
     let teamRows = allRows.filter((r) => r.team && teamAliasesNorm.has(normalize(r.team)));
 
-    // In live mode, override the current-season row from the FGM export so
-    // the bot reflects mid-season W/L. In offseason mode, the resume sheet
-    // already has the finalized current-season record — leave it alone.
-    if (isLive(leagueData)) {
-      teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason);
-    }
+    const currentCoach = await findCurrentCoachForTeam(leagueData, team);
+    teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason, currentCoach);
 
     if (!teamRows.length) {
       return interaction.editReply(`*No coaching history found for ${teamLabel} on the resume sheet yet.*`);
