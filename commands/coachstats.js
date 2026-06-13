@@ -6,7 +6,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
-const { normalize, findMatchingTeam } = require('../utils/sheets');
+const { normalize, findMatchingTeam, canonicalTeamAlias } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
@@ -170,7 +170,9 @@ function buildTeamHistory(history, currentSeason) {
   for (let i = 1; i < withTeam.length; i++) {
     const curr = withTeam[i];
     const consecutive = +curr.year === +prevYear + 1;
-    const sameTeam    = normalize(curr.team) === normalize(team);
+    const sameTeam =
+      normalize(canonicalTeamAlias(curr.team)) ===
+      normalize(canonicalTeamAlias(team));
 
     if (sameTeam && consecutive) {
       // Find record for this year
