@@ -19,7 +19,6 @@ const {
   getTeamName,
 } = require('../utils/data');
 const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
-const { isLive } = require('../utils/seasonMode');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -247,22 +246,14 @@ module.exports = {
     // Then apply the coach's manual /recordupdate overrides on top so any
     // half-season adjustments are reflected on the leaderboard too.
     //
-    // In offseason mode the resume sheet is authoritative — the FGM export
-    // is stale or has advanced past the natty — so we skip the live patch
-    // and trust whatever finalized record the sheet shows. Matches the
-    // gate in /coachstats.
-    //
     // We also re-derive `years` from the resume history (count of years
     // the coach has a record on the resume sheet) so the leaderboard's
     // year-based sort and formula gate auto-grow when a finalized year
     // lands in the sheet, instead of depending on someone manually
     // bumping the Coach tab's Years column.
-    const liveMode = isLive(leagueData);
     const enriched = coaches.map(c => {
       const baseRecord  = recordMap.get(normalize(c.coach)) || null;
-      const livePatched = liveMode
-        ? patchRecordWithCurrentSeason(leagueData, c, baseRecord)
-        : baseRecord;
+      const livePatched = patchRecordWithCurrentSeason(leagueData, c, baseRecord);
       const finalRecord = applyOverridesToLeaderboardRecord(
         livePatched,
         c.coach,

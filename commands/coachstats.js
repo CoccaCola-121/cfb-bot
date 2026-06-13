@@ -6,12 +6,11 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
-const { normalize } = require('../utils/sheets');
+const { normalize, findMatchingTeam } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
 const { getNatTitleYears } = require('../utils/natTitles');
-const { isLive } = require('../utils/seasonMode');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -144,12 +143,7 @@ function computeRanks(coaches) {
 }
 
 function findTeamByName(leagueData, name) {
-  if (!leagueData?.teams) return null;
-  const t = normalize(name);
-  return leagueData.teams.find(x => !x.disabled && (
-    normalize(getTeamName(x)) === t || normalize(x.region) === t ||
-    normalize(x.name) === t || normalize(x.abbrev) === t
-  )) || null;
+  return findMatchingTeam(leagueData, name);
 }
 
 // Build team history spans like: "2050-2055: Michigan State (65-0)"
@@ -263,12 +257,7 @@ module.exports = {
     // Patch current season live record into resume total
     // The resume sheet Total column won't include the in-progress season,
     // so we add the current team's live record from the Football GM JSON.
-    // In offseason mode the resume sheet is authoritative — the FGM export
-    // is stale or already advanced past the natty — so we skip the patch
-    // entirely and trust whatever finalized record the sheet shows.
-    const liveMode = isLive(leagueData);
     function patchCurrentSeason(coach, resume) {
-      if (!liveMode) return resume;
       if (!leagueData || !currentSeason) return resume;
       const leagueTeam = findTeamByName(leagueData, coach.team);
       if (!leagueTeam) return resume;
@@ -297,9 +286,10 @@ module.exports = {
       const totalW = baseResume.wins - existingW + liveW;
       const totalL = baseResume.losses - existingL + liveL;
       const liveRecord = `${liveW}-${liveL}`;
+      const canonicalTeamName = getTeamName(leagueTeam);
       const newHistory = [
         ...baseResume.history.filter(h => h.year !== currentSeason),
-        { year: currentSeason, record: liveRecord, team: coach.team, livePatched: true },
+        { year: currentSeason, record: liveRecord, team: canonicalTeamName, livePatched: true },
       ].sort((a, b) => +a.year - +b.year);
       return {
         ...baseResume,
