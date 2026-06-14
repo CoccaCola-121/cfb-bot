@@ -25,6 +25,12 @@ const SHEET_ID =
 const STATS_TAB_GID =
   process.env.RANKINGS_HISTORY_STATS_GID || '1827012639';
 
+const HIGHEST_RANKED_TEAM_COL = 34; // AI
+const HIGHEST_RANKED_BEST_RANK_COL = 35; // AJ
+const HIGHEST_RANKED_FIRST_HIT_COL = 36; // AK
+const HIGHEST_RANKED_MOST_RECENT_COL = 37; // AL
+const HIGHEST_RANKED_TIMES_HIT_COL = 38; // AM
+
 // ---------- helpers ----------
 
 function normalize(value) {
@@ -239,6 +245,40 @@ function findMetricBlocks(headers) {
 
 // ---------- row parsing ----------
 
+function parseHighestRankedBlock(rows, team) {
+  if (!Array.isArray(rows) || rows.length < 2) {
+    return {
+      highestBestRank: null,
+      highestFirstHit: null,
+      highestMostRecent: null,
+      highestTimesHit: null,
+    };
+  }
+
+  const exactTeamName = String(getTeamName(team) || '').trim();
+
+  for (const rawRow of rows) {
+    const teamCell = String(rawRow?.[HIGHEST_RANKED_TEAM_COL] || '').trim();
+    if (!teamCell || normalize(teamCell) === 'teams') continue;
+
+    if (teamCell === exactTeamName || teamMatchesCell(teamCell, team)) {
+      return {
+        highestBestRank: parseNumber(rawRow[HIGHEST_RANKED_BEST_RANK_COL]),
+        highestFirstHit: parseText(rawRow[HIGHEST_RANKED_FIRST_HIT_COL]),
+        highestMostRecent: parseText(rawRow[HIGHEST_RANKED_MOST_RECENT_COL]),
+        highestTimesHit: parseNumber(rawRow[HIGHEST_RANKED_TIMES_HIT_COL]),
+      };
+    }
+  }
+
+  return {
+    highestBestRank: null,
+    highestFirstHit: null,
+    highestMostRecent: null,
+    highestTimesHit: null,
+  };
+}
+
 function parseStatsTab(rows, team) {
   if (!Array.isArray(rows) || rows.length < 2) return null;
 
@@ -255,14 +295,8 @@ function parseStatsTab(rows, team) {
     bestStreakByTeam: null,
     bestStreakActive: null,
     bestStreakSeasons: null,
-    highestBestRank: null,
-    highestFirstHit: null,
-    highestMostRecent: null,
-    highestTimesHit: null,
     lastRanked: null,
   };
-
-  const exactTeamName = String(getTeamName(team) || '').trim();
 
   // Since each block is its own ranked list, a team's row varies by block.
   // Walk EVERY data row and check each block independently.
@@ -349,33 +383,6 @@ function parseStatsTab(rows, team) {
       }
     }
 
-    // Highest Ranked block uses exact team-name match against the Stats tab
-    // team column, per sheet contract.
-    if (
-      blocks.highestRanked &&
-      result.highestBestRank === null &&
-      String(row[blocks.highestRanked.teamCol] || '').trim() === exactTeamName
-    ) {
-      result.highestBestRank = parseNumber(
-        row[blocks.highestRanked.bestRankCol]
-      );
-      if (blocks.highestRanked.firstHitCol >= 0) {
-        result.highestFirstHit = parseText(
-          row[blocks.highestRanked.firstHitCol]
-        );
-      }
-      if (blocks.highestRanked.mostRecentCol >= 0) {
-        result.highestMostRecent = parseText(
-          row[blocks.highestRanked.mostRecentCol]
-        );
-      }
-      if (blocks.highestRanked.timesHitCol >= 0) {
-        result.highestTimesHit = parseNumber(
-          row[blocks.highestRanked.timesHitCol]
-        );
-      }
-    }
-
     // Last Ranked  — pull the cell value as text (already formatted on
     // the sheet, e.g. "2060 Playoff Rankings").
     if (
@@ -390,8 +397,10 @@ function parseStatsTab(rows, team) {
     }
   }
 
-  const foundAnything = Object.values(result).some((v) => v !== null);
-  return foundAnything ? result : null;
+  const highestRanked = parseHighestRankedBlock(rows, team);
+  const merged = { ...result, ...highestRanked };
+  const foundAnything = Object.values(merged).some((v) => v !== null);
+  return foundAnything ? merged : null;
 }
 
 // ---------- formatting ----------
@@ -412,22 +421,22 @@ function fmtWithSeasons(weeks, seasons) {
 function formatHighestRanking(stats) {
   if (!Number.isFinite(stats.highestBestRank)) return '—';
 
-  const lines = [`**#${stats.highestBestRank}**`];
-  const detailBits = [];
+  const timesHit = Number.isFinite(stats.highestTimesHit) ? stats.highestTimesHit : null;
+  const oneHit = !timesHit || timesHit <= 1;
 
-  if (stats.highestFirstHit) detailBits.push(`First: ${stats.highestFirstHit}`);
-  if (stats.highestMostRecent) detailBits.push(`Most Recent: ${stats.highestMostRecent}`);
-  if (Number.isFinite(stats.highestTimesHit) && stats.highestTimesHit > 1) {
-    detailBits.push(`Reached ${stats.highestTimesHit}x`);
+  if (oneHit && stats.highestFirstHit) {
+    return `**#${stats.highestBestRank}** (${stats.highestFirstHit})`;
   }
 
-  if (detailBits.length <= 2) {
-    lines.push(...detailBits);
-  } else if (detailBits.length > 0) {
-    lines.push(detailBits.join(' • '));
+  if (!oneHit) {
+    return `**#${stats.highestBestRank}** (${stats.highestTimesHit}x)`;
   }
 
-  return lines.join('\n');
+  if (stats.highestMostRecent) {
+    return `**#${stats.highestBestRank}** (${stats.highestMostRecent})`;
+  }
+
+  return `**#${stats.highestBestRank}**`;
 }
 
 // ---------- command ----------
