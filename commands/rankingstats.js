@@ -15,6 +15,11 @@ const {
 } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
+const {
+  loadRankingsHistory,
+  readRankingColumn,
+  formatColumnLabel,
+} = require('../utils/rankingsHistory');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
@@ -357,6 +362,27 @@ function fmtWithSeasons(weeks, seasons) {
   return `**${weeks}** (${seasonsStr} seasons)`;
 }
 
+function getHighestRankingEver(rows, team, columnIndex) {
+  if (!rows || !columnIndex?.length) return null;
+
+  let best = null;
+
+  for (const column of columnIndex) {
+    const entries = readRankingColumn(rows, column, { limit: 25 });
+    const match = entries.find((entry) => teamMatchesCell(entry.name, team));
+    if (!match) continue;
+
+    if (!best || match.rank < best.rank) {
+      best = {
+        rank: match.rank,
+        label: formatColumnLabel(column),
+      };
+    }
+  }
+
+  return best;
+}
+
 // ---------- command ----------
 
 module.exports = {
@@ -403,7 +429,10 @@ module.exports = {
       abbrev = String(team.abbrev || '').toUpperCase().trim();
     }
 
-    const { rows } = await fetchStatsRows();
+    const [{ rows }, historical] = await Promise.all([
+      fetchStatsRows(),
+      loadRankingsHistory(),
+    ]);
 
     if (!rows) {
       return interaction.editReply(
@@ -424,6 +453,14 @@ module.exports = {
     const lastRankedDisplay = stats.lastRanked
       ? `**${stats.lastRanked}**`
       : '—';
+    const highestRanking = getHighestRankingEver(
+      historical.rows,
+      team,
+      historical.columnIndex
+    );
+    const highestRankingDisplay = highestRanking
+      ? `**#${highestRanking.rank}**${highestRanking.label ? ` (${highestRanking.label})` : ''}`
+      : '—';
 
     const embed = new EmbedBuilder()
       .setTitle(`Historical Ranking Stats — ${getTeamName(team)}`)
@@ -442,6 +479,11 @@ module.exports = {
         {
           name: 'All-Time Weeks at #1',
           value: `**${stats.weeksRankedNumber1 ?? 0}**`,
+          inline: true,
+        },
+        {
+          name: 'Highest Ranking Ever',
+          value: highestRankingDisplay,
           inline: true,
         },
         {

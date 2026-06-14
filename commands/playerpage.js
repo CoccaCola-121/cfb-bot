@@ -411,7 +411,33 @@ function scorePlayerNameMatch(player, query, currentSeason) {
   return { score, fullName };
 }
 
+function isDraftProspectTeamQuery(teamQuery) {
+  const normalized = String(teamQuery || '').trim().toLowerCase();
+  return normalized === 'dp' || normalized === 'draft prospect' || normalized === 'draft prospects';
+}
+
 function findPlayerByNameForTeam(leagueData, query, teamQuery) {
+  if (isDraftProspectTeamQuery(teamQuery)) {
+    const currentSeason = getCurrentSeason(leagueData);
+    const candidates = (leagueData.players || [])
+      .filter((player) => player.tid === -2)
+      .map((player) => {
+        const { score, fullName } = scorePlayerNameMatch(player, query, currentSeason);
+        return { player, score, fullName };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.fullName.localeCompare(b.fullName);
+      });
+
+    return {
+      player: candidates[0]?.player || null,
+      team: null,
+      teamFound: true,
+    };
+  }
+
   const team = findTeamByName(leagueData, teamQuery);
   if (!team) {
     return { player: null, team: null, teamFound: false };
