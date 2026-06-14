@@ -15,11 +15,6 @@ const {
 } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
-const {
-  loadRankingsHistory,
-  readRankingColumn,
-  formatColumnLabel,
-} = require('../utils/rankingsHistory');
 
 // Rankings History workbook (separate from the NZCFL Info sheet).
 const SHEET_ID =
@@ -76,6 +71,12 @@ function parseNumber(value) {
   if (!s) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseText(value) {
+  const s = String(value || '').trim();
+  if (!s || s.toUpperCase() === 'N/A' || s === '#N/A') return null;
+  return s;
 }
 
 // ---------- sheet loading ----------
@@ -163,6 +164,7 @@ function findMetricBlocks(headers) {
     weeksRankedNumber1: null,
     totalWeeksTop10: null,
     bestStreakByTeam: null,
+    highestRanked: null,
     lastRanked: null,
   };
 
@@ -211,6 +213,18 @@ function findMetricBlocks(headers) {
       continue;
     }
 
+    // Highest Ranked block on Stats tab (AI:AM)
+    if (cur === 'best rank') {
+      blocks.highestRanked = {
+        teamCol: tc,
+        bestRankCol: i,
+        firstHitCol: i + 1 < h.length ? i + 1 : -1,
+        mostRecentCol: i + 2 < h.length ? i + 2 : -1,
+        timesHitCol: i + 3 < h.length ? i + 3 : -1,
+      };
+      continue;
+    }
+
     // Last Ranked  — new block on the Stats tab (around AE:AG).
     // Header is "Last Ranked" with the team column to its left, and the
     // cell value is already a formatted label like "2060 Playoff Rankings".
@@ -241,8 +255,14 @@ function parseStatsTab(rows, team) {
     bestStreakByTeam: null,
     bestStreakActive: null,
     bestStreakSeasons: null,
+    highestBestRank: null,
+    highestFirstHit: null,
+    highestMostRecent: null,
+    highestTimesHit: null,
     lastRanked: null,
   };
+
+  const exactTeamName = String(getTeamName(team) || '').trim();
 
   // Since each block is its own ranked list, a team's row varies by block.
   // Walk EVERY data row and check each block independently.
@@ -329,6 +349,33 @@ function parseStatsTab(rows, team) {
       }
     }
 
+    // Highest Ranked block uses exact team-name match against the Stats tab
+    // team column, per sheet contract.
+    if (
+      blocks.highestRanked &&
+      result.highestBestRank === null &&
+      String(row[blocks.highestRanked.teamCol] || '').trim() === exactTeamName
+    ) {
+      result.highestBestRank = parseNumber(
+        row[blocks.highestRanked.bestRankCol]
+      );
+      if (blocks.highestRanked.firstHitCol >= 0) {
+        result.highestFirstHit = parseText(
+          row[blocks.highestRanked.firstHitCol]
+        );
+      }
+      if (blocks.highestRanked.mostRecentCol >= 0) {
+        result.highestMostRecent = parseText(
+          row[blocks.highestRanked.mostRecentCol]
+        );
+      }
+      if (blocks.highestRanked.timesHitCol >= 0) {
+        result.highestTimesHit = parseNumber(
+          row[blocks.highestRanked.timesHitCol]
+        );
+      }
+    }
+
     // Last Ranked  — pull the cell value as text (already formatted on
     // the sheet, e.g. "2060 Playoff Rankings").
     if (
@@ -362,25 +409,25 @@ function fmtWithSeasons(weeks, seasons) {
   return `**${weeks}** (${seasonsStr} seasons)`;
 }
 
-function getHighestRankingEver(rows, team, columnIndex) {
-  if (!rows || !columnIndex?.length) return null;
+function formatHighestRanking(stats) {
+  if (!Number.isFinite(stats.highestBestRank)) return '—';
 
-  let best = null;
+  const lines = [`**#${stats.highestBestRank}**`];
+  const detailBits = [];
 
-  for (const column of columnIndex) {
-    const entries = readRankingColumn(rows, column, { limit: 25 });
-    const match = entries.find((entry) => teamMatchesCell(entry.name, team));
-    if (!match) continue;
-
-    if (!best || match.rank < best.rank) {
-      best = {
-        rank: match.rank,
-        label: formatColumnLabel(column),
-      };
-    }
+  if (stats.highestFirstHit) detailBits.push(`First: ${stats.highestFirstHit}`);
+  if (stats.highestMostRecent) detailBits.push(`Most Recent: ${stats.highestMostRecent}`);
+  if (Number.isFinite(stats.highestTimesHit) && stats.highestTimesHit > 1) {
+    detailBits.push(`Reached ${stats.highestTimesHit}x`);
   }
 
-  return best;
+  if (detailBits.length <= 2) {
+    lines.push(...detailBits);
+  } else if (detailBits.length > 0) {
+    lines.push(detailBits.join(' • '));
+  }
+
+  return lines.join('\n');
 }
 
 // ---------- command ----------
@@ -429,10 +476,7 @@ module.exports = {
       abbrev = String(team.abbrev || '').toUpperCase().trim();
     }
 
-    const [{ rows }, historical] = await Promise.all([
-      fetchStatsRows(),
-      loadRankingsHistory(),
-    ]);
+    const { rows } = await fetchStatsRows();
 
     if (!rows) {
       return interaction.editReply(
@@ -453,14 +497,7 @@ module.exports = {
     const lastRankedDisplay = stats.lastRanked
       ? `**${stats.lastRanked}**`
       : '—';
-    const highestRanking = getHighestRankingEver(
-      historical.rows,
-      team,
-      historical.columnIndex
-    );
-    const highestRankingDisplay = highestRanking
-      ? `**#${highestRanking.rank}**${highestRanking.label ? ` (${highestRanking.label})` : ''}`
-      : '—';
+    const highestRankingDisplay = formatHighestRanking(stats);
 
     const embed = new EmbedBuilder()
       .setTitle(`Historical Ranking Stats — ${getTeamName(team)}`)
