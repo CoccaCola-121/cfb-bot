@@ -17,6 +17,67 @@ const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID      = '1607727992';
 
+function levenshtein(a, b) {
+  const s = String(a || '');
+  const t = String(b || '');
+  const dp = Array.from({ length: s.length + 1 }, () => new Array(t.length + 1).fill(0));
+
+  for (let i = 0; i <= s.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= t.length; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= s.length; i++) {
+    for (let j = 1; j <= t.length; j++) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return dp[s.length][t.length];
+}
+
+function coachNamesLikelyMatch(a, b) {
+  const an = normalize(a);
+  const bn = normalize(b);
+  if (!an || !bn) return false;
+  if (an === bn) return true;
+  if (an.length >= 3 && bn.length >= 3 && (an.includes(bn) || bn.includes(an))) return true;
+
+  const longEnough = Math.max(an.length, bn.length) >= 8;
+  const distance = levenshtein(an, bn);
+  if (longEnough && distance <= 2) return true;
+
+  return false;
+}
+
+function findResumeForCoach(resumeMap, coachName) {
+  const exact = resumeMap.get(normalize(coachName));
+  if (exact) return exact;
+
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const [resumeCoach, resume] of resumeMap.entries()) {
+    if (!coachNamesLikelyMatch(coachName, resumeCoach)) continue;
+
+    let score = 0;
+    const target = normalize(coachName);
+    if (resumeCoach === target) score += 100;
+    if (resumeCoach.includes(target) || target.includes(resumeCoach)) score += 25;
+    score -= levenshtein(target, resumeCoach);
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = resume;
+    }
+  }
+
+  return best;
+}
+
 // ── Parse Coach CSV ──────────────────────────────────────────
 function parseCoachCsv(rows) {
   let hi = -1;
@@ -314,7 +375,7 @@ module.exports = {
     // depending on someone manually bumping the Coach tab's Years column.
     // Falls back to the CSV value if the resume sheet has no history.
     const coaches = csvCoaches.map(c => {
-      const rawResume = resumeMap.get(normalize(c.coach)) || null;
+      const rawResume = findResumeForCoach(resumeMap, c.coach) || null;
       const patched   = patchCurrentSeason(c, rawResume);
       const finalResume = applyOverridesToResume(patched, c.coach);
       const derivedYears = finalResume?.history?.length || 0;
@@ -342,6 +403,7 @@ module.exports = {
       const cn = normalize(c.coach);
       const tn = normalize(c.team);
       if (cn === query) return true;
+      if (coachNamesLikelyMatch(queryRaw, c.coach)) return true;
       if (cn.startsWith(query) && cn.length > query.length && /[_\d]/.test(cn[query.length])) return false;
       if (query.length >= 3 && cn.includes(query)) return true;
       if (query.length >= 3 && tn.includes(query)) return true;

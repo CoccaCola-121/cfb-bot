@@ -36,6 +36,16 @@ function isYear(val) {
   return /^\d{4}$/.test(String(val).trim());
 }
 
+function findResumeHeaderRow(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const normalized = (rows[i] || []).map((cell) => String(cell || '').trim().toLowerCase());
+    if (normalized.includes('coach') && normalized.includes('total')) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 // ---------- load + parse ----------
 
 async function loadResume() {
@@ -56,7 +66,10 @@ async function loadResume() {
   }
   if (!rows || rows.length < 2) return [];
 
-  const header = rows[0].map((cell) => String(cell || '').trim());
+  const headerRowIdx = findResumeHeaderRow(rows);
+  if (headerRowIdx === -1) return [];
+
+  const header = rows[headerRowIdx].map((cell) => String(cell || '').trim());
   const yearCols = header
     .map((value, index) => (isYear(value) ? { year: Number(value), col: index } : null))
     .filter(Boolean);
@@ -77,7 +90,7 @@ async function loadResume() {
 
   const result = [];
 
-  for (let r = 1; r < rows.length; r++) {
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
     const row = rows[r];
     const coach = String(row[0] || '').trim();
     if (!coach) continue;
