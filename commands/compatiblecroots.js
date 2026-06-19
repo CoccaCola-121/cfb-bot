@@ -86,7 +86,7 @@ module.exports = {
 
     const lines = rankedFits.map(({ recruit, fit }, index) => {
       const overall = recruit.rank ? `#${recruit.rank}` : 'Unranked';
-      return `\`${String(index + 1).padStart(2)}\` **${recruit.name}** (${recruit.pos}) — fit **#${fit.fitRank}** • ${overall}`;
+      return `\`${String(index + 1).padStart(2)}\` **${recruit.name}** (${recruit.pos}) — Raw **#${fit.fitRank}** • ${overall}`;
     });
 
     const title = position
@@ -98,7 +98,7 @@ module.exports = {
       .setTitle(title)
       .setDescription(lines.join('\n'))
       .setThumbnail(getTeamLogoUrl(team))
-      .setFooter({ text: 'Rankings tab • Lower fit rank = better fit • Uncommitted recruits only' })
+      .setFooter({ text: 'Rankings tab • Uncommitted recruits only' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

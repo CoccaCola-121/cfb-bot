@@ -60,7 +60,7 @@ module.exports = {
         name: 'Best Fits',
         value: topFits.length ? topFits.join('\n') : '—',
       })
-      .setFooter({ text: 'Rankings tab • Lower fit rank = better fit' })
+      .setFooter({ text: 'Rankings tab' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

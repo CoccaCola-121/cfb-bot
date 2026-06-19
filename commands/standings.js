@@ -11,177 +11,20 @@ const {
   formatRecord,
 } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
-
-function getTeamMetaMaps(leagueData) {
-  const byTid = new Map();
-
-  for (const team of leagueData.teams || []) {
-    byTid.set(team.tid, {
-      tid: team.tid,
-      cid: team.cid,
-      did: team.did,
-      abbrev: team.abbrev,
-      region: team.region,
-      name: team.name,
-      disabled: !!team.disabled,
-    });
-  }
-
-  return { byTid };
-}
-
-// Regular season is 12 games per team. Anything after that (days 13+ in the
-// export) is CCG / bowls and must NOT be counted toward division/conference
-// elimination math — the leader "losing" the CCG can't flip the conference
-// title since those games don't change wonConf/wonDiv counts.
-const REGULAR_SEASON_GAMES = 12;
-
-function getFutureGames(leagueData) {
-  const futureGames = [];
-
-  if (Array.isArray(leagueData.schedule)) {
-    for (const game of leagueData.schedule) {
-      const homeTid =
-        game.homeTid ??
-        game.home?.tid ??
-        game.teams?.[0]?.tid;
-
-      const awayTid =
-        game.awayTid ??
-        game.away?.tid ??
-        game.teams?.[1]?.tid;
-
-      const day =
-        typeof game.day === 'number' ? game.day : null;
-
-      if (Number.isInteger(homeTid) && Number.isInteger(awayTid)) {
-        futureGames.push({ homeTid, awayTid, day });
-      }
-    }
-  }
-
-  if (futureGames.length === 0 && Array.isArray(leagueData.games)) {
-    for (const game of leagueData.games) {
-      const teams = Array.isArray(game.teams) ? game.teams : null;
-      if (!teams || teams.length < 2) continue;
-
-      const homeTid = teams[0]?.tid;
-      const awayTid = teams[1]?.tid;
-
-      const played =
-        typeof teams[0]?.pts === 'number' &&
-        typeof teams[1]?.pts === 'number';
-
-      if (!played && Number.isInteger(homeTid) && Number.isInteger(awayTid)) {
-        const day = typeof game.day === 'number' ? game.day : null;
-        futureGames.push({ homeTid, awayTid, day });
-      }
-    }
-  }
-
-  return futureGames;
-}
-
-// Returns total games played by a team in the current season from the
-// seasons[] record (wins+losses+ties). Falls back to 0 if unknown.
-function getTeamGamesPlayed(leagueData, teamTid) {
-  const team = (leagueData.teams || []).find((t) => t.tid === teamTid);
-  if (!team) return 0;
-  const currentSeason = leagueData.gameAttributes?.season;
-  const seasons = Array.isArray(team.seasons) ? team.seasons : [];
-  let seas = null;
-  if (currentSeason !== undefined && currentSeason !== null) {
-    seas = seasons.find((s) => s.season === currentSeason);
-  }
-  if (!seas) seas = seasons[seasons.length - 1];
-  if (!seas) return 0;
-  const w = Number(seas.won) || 0;
-  const l = Number(seas.lost) || 0;
-  const t = Number(seas.tied) || 0;
-  return w + l + t;
-}
-
-function countRelevantRemainingGames(leagueData, teamTid) {
-  const { byTid } = getTeamMetaMaps(leagueData);
-  const futureGames = getFutureGames(leagueData);
-  const teamMeta = byTid.get(teamTid);
-
-  if (!teamMeta) {
-    return { divRemaining: 0, confRemaining: 0 };
-  }
-
-  const gamesPlayed = getTeamGamesPlayed(leagueData, teamTid);
-  const regSeasonSlotsLeft = Math.max(0, REGULAR_SEASON_GAMES - gamesPlayed);
-
-  // Team's upcoming games, sorted by day so we consider the earliest games
-  // first when capping at regular-season slots.
-  const teamFutureGames = futureGames
-    .filter((g) => g.homeTid === teamTid || g.awayTid === teamTid)
-    .sort((a, b) => {
-      const aDay = a.day ?? Number.MAX_SAFE_INTEGER;
-      const bDay = b.day ?? Number.MAX_SAFE_INTEGER;
-      return aDay - bDay;
-    });
-
-  let divRemaining = 0;
-  let confRemaining = 0;
-  let regCountedSoFar = 0;
-
-  for (const game of teamFutureGames) {
-    if (regCountedSoFar >= regSeasonSlotsLeft) break;
-
-    const oppTid = game.homeTid === teamTid ? game.awayTid : game.homeTid;
-    const oppMeta = byTid.get(oppTid);
-    if (!oppMeta || oppMeta.disabled) continue;
-
-    regCountedSoFar += 1;
-
-    const sameConference = oppMeta.cid === teamMeta.cid;
-    const sameDivision = sameConference && oppMeta.did === teamMeta.did;
-
-    if (sameConference) confRemaining += 1;
-    if (sameDivision) divRemaining += 1;
-  }
-
-  return { divRemaining, confRemaining };
-}
-
-function recordPoints(wins = 0, losses = 0, ties = 0) {
-  return wins + (ties * 0.5);
-}
+const {
+  getRelevantConferenceGames,
+  buildCurrentState,
+  buildCurrentH2H,
+  canStillWinDivision,
+} = require('../utils/divisionRace');
 
 function isEliminatedFromDivision(leagueData, divisionTeams, team) {
   if (!divisionTeams || divisionTeams.length === 0) return false;
-
-  const leader = divisionTeams[0];
-  if (leader.abbrev === team.abbrev) return false;
-
-  const leaderConfPts = recordPoints(leader.confWins, leader.confLosses, leader.confTies);
-  const leaderDivPts = recordPoints(leader.divWins, leader.divLosses, leader.divTies);
-
-  const remaining = countRelevantRemainingGames(leagueData, team.tid);
-
-  const teamCurrentConfPts = recordPoints(team.confWins, team.confLosses, team.confTies);
-  const teamCurrentDivPts = recordPoints(team.divWins, team.divLosses, team.divTies);
-
-  const maxPossibleConfPts = teamCurrentConfPts + remaining.confRemaining;
-  const maxPossibleDivPts = teamCurrentDivPts + remaining.divRemaining;
-
-  // Primary criterion: conference record.
-  if (maxPossibleConfPts < leaderConfPts) {
-    return true;
-  }
-
-  // If they can at best tie the leader in conf record, H2H is the first
-  // tiebreaker. Since H2H is pairwise (not monotonic across the season), we
-  // only fall back to the division-record tiebreaker here — this is a
-  // conservative elimination check, so we don't mark a team as eliminated on
-  // H2H alone.
-  if (maxPossibleConfPts === leaderConfPts && maxPossibleDivPts < leaderDivPts) {
-    return true;
-  }
-
-  return false;
+  const divisionTeamTids = divisionTeams.map((entry) => entry.tid);
+  const relevantGames = getRelevantConferenceGames(leagueData, divisionTeamTids);
+  const state = buildCurrentState({ teams: divisionTeams });
+  const h2hMap = buildCurrentH2H(leagueData, divisionTeamTids);
+  return !canStillWinDivision(state, h2hMap, relevantGames, divisionTeamTids, team.tid);
 }
 
 module.exports = {
