@@ -22,7 +22,7 @@ const HELP_CATEGORIES = {
     label: '📊 Stats & Standings',
     description: 'Use these to look up teams, players, standings, rankings, and schedules.',
     lines: [
-      '`/standings <conference>` — See the conference standings.',
+      '`/standings [conference]` — See the conference standings.',
       '`/rankings` — See the current Top 25 rankings.',
       '`/teamstats <team>` — See one team’s full stat page.',
       '`/teamleaderboards <stat>` — See the top teams in one stat.',
@@ -59,6 +59,8 @@ const HELP_CATEGORIES = {
     lines: [
       '`/recruitingclass <team>` — See a team’s incoming class.',
       '`/toprecruits [position]` — See the top recruits.',
+      '`/crootpage <player>` — Open one recruit’s fit page.',
+      '`/compatiblecroots [team] [position]` — Best current recruit fits for a team.',
     ],
   },
   rankings: {

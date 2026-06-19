@@ -7,8 +7,10 @@ const {
   getLatestLeagueData,
   getConferenceDivisionStandings,
   getConferenceLogoUrl,
+  getConferenceAbbrev,
   formatRecord,
 } = require('../utils/data');
+const { getUserTeam } = require('../utils/userMap');
 
 function getTeamMetaMaps(leagueData) {
   const byTid = new Map();
@@ -189,8 +191,8 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('conference')
-        .setDescription('Conference abbreviation')
-        .setRequired(true)
+        .setDescription('Conference abbreviation (defaults to your linked team conference)')
+        .setRequired(false)
         .addChoices(
           { name: 'ACC', value: 'ACC' },
           { name: 'B1G', value: 'B1G' },
@@ -213,7 +215,21 @@ module.exports = {
       return interaction.editReply('❌ No league data loaded. Ask a commissioner to run `/loadweek`.');
     }
 
-    const conference = interaction.options.getString('conference');
+    let conference = interaction.options.getString('conference');
+    if (!conference) {
+      const userTeam = await getUserTeam(leagueData, interaction.user.id);
+      if (!userTeam) {
+        return interaction.editReply(
+          '❌ No conference specified and no linked coach found. Pass a conference or run `/iam coach:<your name>` first.'
+        );
+      }
+
+      conference = getConferenceAbbrev(leagueData, userTeam.cid);
+      if (!conference) {
+        return interaction.editReply(`❌ Could not determine the conference for **${userTeam.abbrev}**.`);
+      }
+    }
+
     const confStandings = getConferenceDivisionStandings(leagueData, conference);
 
     if (!confStandings) {
