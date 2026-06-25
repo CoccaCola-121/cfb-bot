@@ -228,12 +228,20 @@ function getRelevantRatings(player) {
       formatRatingPair('ThA', ratings.tha),
       formatRatingPair('Elu', ratings.elu),
     ];
-  } else if (['RB', 'WR', 'TE'].includes(pos)) {
+  } else if (['RB', 'WR'].includes(pos)) {
     skillBits = [
       formatRatingPair('Elu', ratings.elu),
       formatRatingPair('RtR', ratings.rtr),
       formatRatingPair('Hnd', ratings.hnd),
       formatRatingPair('Bsc', ratings.bsc),
+    ];
+  } else if (pos === 'TE') {
+    skillBits = [
+      formatRatingPair('RtR', ratings.rtr),
+      formatRatingPair('Hnd', ratings.hnd),
+      formatRatingPair('Bsc', ratings.bsc),
+      formatRatingPair('Pbk', ratings.pbk),
+      formatRatingPair('Rbk', ratings.rbk),
     ];
   } else if (['OL', 'LT', 'LG', 'C', 'RG', 'RT'].includes(pos)) {
     skillBits = [
