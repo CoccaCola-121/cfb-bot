@@ -33,11 +33,28 @@ const {
   Collection,
   Options,
 } = require('discord.js');
+const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { isCommandEnabled } = require('./config/enabledCommands');
 
 require('dotenv').config();
+
+if (process.env.PORT) {
+  const port = Number(process.env.PORT);
+  const healthServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  });
+
+  healthServer.listen(port, () => {
+    console.log(`Health server listening on port ${port}`);
+  });
+
+  healthServer.on('error', (error) => {
+    console.error('HEALTH SERVER ERROR:', error);
+  });
+}
 
 // ── Create the Discord client ────────────────────────────────
 //
