@@ -101,6 +101,32 @@ client.once('ready', () => {
   );
 });
 
+client.on('error', (error) => {
+  console.error('DISCORD CLIENT ERROR:', error);
+});
+
+client.on('warn', (warning) => {
+  console.warn('DISCORD CLIENT WARN:', warning);
+});
+
+client.on('shardReady', (shardId) => {
+  console.log(`DISCORD SHARD READY: ${shardId}`);
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+  console.warn(
+    `DISCORD SHARD DISCONNECT: shard=${shardId} code=${event.code} reason=${event.reason || '(no reason)'}`
+  );
+});
+
+client.on('shardReconnecting', (shardId) => {
+  console.warn(`DISCORD SHARD RECONNECTING: ${shardId}`);
+});
+
+client.on('shardResume', (shardId, replayedEvents) => {
+  console.log(`DISCORD SHARD RESUMED: ${shardId} replayedEvents=${replayedEvents}`);
+});
+
 // Recurring memory log every 5 minutes so you can watch it trend over
 // time in the Railway dashboard. Comment out if it's too noisy.
 setInterval(() => {
@@ -137,4 +163,8 @@ if (!process.env.DISCORD_TOKEN) {
   process.exit(1);
 }
 
-client.login(process.env.DISCORD_TOKEN);
+console.log('Attempting Discord login...');
+client.login(process.env.DISCORD_TOKEN).catch((error) => {
+  console.error('DISCORD LOGIN FAILED:', error);
+  process.exit(1);
+});
