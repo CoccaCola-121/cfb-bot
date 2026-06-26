@@ -1,3 +1,11 @@
+process.on("unhandledRejection", error => {
+  console.error("UNHANDLED REJECTION:", error);
+});
+
+process.on("uncaughtException", error => {
+  console.error("UNCAUGHT EXCEPTION:", error);
+});
+
 // ============================================================
 //  CFB League Discord Bot  —  index.js
 //  Entry point: loads config, registers commands, starts bot
@@ -80,6 +88,7 @@ for (const file of commandFiles) {
 
 // ── Bot ready ────────────────────────────────────────────────
 client.once('ready', () => {
+  console.log(`BOT LOGGED IN AS ${client.user.tag}`);
   console.log(`\n🏈 Bot is online as ${client.user.tag}`);
   console.log(`   Serving ${client.guilds.cache.size} server(s)\n`);
 
@@ -123,4 +132,9 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ── Log in ───────────────────────────────────────────────────
+if (!process.env.DISCORD_TOKEN) {
+  console.error('Missing required environment variable: DISCORD_TOKEN');
+  process.exit(1);
+}
+
 client.login(process.env.DISCORD_TOKEN);
