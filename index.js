@@ -6,6 +6,22 @@ process.on("uncaughtException", error => {
   console.error("UNCAUGHT EXCEPTION:", error);
 });
 
+process.on("beforeExit", (code) => {
+  console.log(`PROCESS BEFORE EXIT: code=${code}`);
+});
+
+process.on("exit", (code) => {
+  console.log(`PROCESS EXIT: code=${code}`);
+});
+
+process.on("SIGTERM", () => {
+  console.warn("PROCESS RECEIVED SIGTERM");
+});
+
+process.on("SIGINT", () => {
+  console.warn("PROCESS RECEIVED SIGINT");
+});
+
 // ============================================================
 //  CFB League Discord Bot  —  index.js
 //  Entry point: loads config, registers commands, starts bot
