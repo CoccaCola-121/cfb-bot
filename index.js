@@ -120,7 +120,14 @@ for (const file of commandFiles) {
 }
 
 // ── Bot ready ────────────────────────────────────────────────
+let loginWatchdog = null;
+
 client.once('ready', () => {
+  if (loginWatchdog) {
+    clearTimeout(loginWatchdog);
+    loginWatchdog = null;
+  }
+
   console.log(`BOT LOGGED IN AS ${client.user.tag}`);
   console.log(`\n🏈 Bot is online as ${client.user.tag}`);
   console.log(`   Serving ${client.guilds.cache.size} server(s)\n`);
@@ -197,7 +204,16 @@ if (!process.env.DISCORD_TOKEN) {
 }
 
 console.log('Attempting Discord login...');
+loginWatchdog = setTimeout(() => {
+  console.warn('DISCORD LOGIN TIMEOUT: 30s elapsed without ready event');
+}, 30 * 1000);
+
 client.login(process.env.DISCORD_TOKEN).catch((error) => {
+  if (loginWatchdog) {
+    clearTimeout(loginWatchdog);
+    loginWatchdog = null;
+  }
+
   console.error('DISCORD LOGIN FAILED:', error);
   process.exit(1);
 });
