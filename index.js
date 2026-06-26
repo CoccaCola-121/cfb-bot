@@ -203,17 +203,50 @@ if (!process.env.DISCORD_TOKEN) {
   process.exit(1);
 }
 
-console.log('Attempting Discord login...');
-loginWatchdog = setTimeout(() => {
-  console.warn('DISCORD LOGIN TIMEOUT: 30s elapsed without ready event');
-}, 30 * 1000);
-
-client.login(process.env.DISCORD_TOKEN).catch((error) => {
-  if (loginWatchdog) {
-    clearTimeout(loginWatchdog);
-    loginWatchdog = null;
+async function startBot() {
+  try {
+    console.log('Checking Discord REST API reachability...');
+    const gatewayResponse = await fetch('https://discord.com/api/v10/gateway');
+    console.log(`DISCORD REST GATEWAY CHECK: status=${gatewayResponse.status}`);
+  } catch (error) {
+    console.error('DISCORD REST GATEWAY CHECK FAILED:', error);
   }
 
-  console.error('DISCORD LOGIN FAILED:', error);
-  process.exit(1);
-});
+  try {
+    console.log('Checking Discord token validity via REST...');
+    const meResponse = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: {
+        Authorization: `Bot ${process.env.DISCORD_TOKEN}`,
+      },
+    });
+
+    console.log(`DISCORD TOKEN CHECK: status=${meResponse.status}`);
+
+    if (meResponse.ok) {
+      const me = await meResponse.json();
+      console.log(`DISCORD TOKEN CHECK OK: bot=${me.username}#${me.discriminator}`);
+    } else {
+      const body = await meResponse.text();
+      console.error(`DISCORD TOKEN CHECK FAILED: status=${meResponse.status} body=${body}`);
+    }
+  } catch (error) {
+    console.error('DISCORD TOKEN CHECK ERROR:', error);
+  }
+
+  console.log('Attempting Discord login...');
+  loginWatchdog = setTimeout(() => {
+    console.warn('DISCORD LOGIN TIMEOUT: 30s elapsed without ready event');
+  }, 30 * 1000);
+
+  client.login(process.env.DISCORD_TOKEN).catch((error) => {
+    if (loginWatchdog) {
+      clearTimeout(loginWatchdog);
+      loginWatchdog = null;
+    }
+
+    console.error('DISCORD LOGIN FAILED:', error);
+    process.exit(1);
+  });
+}
+
+startBot();
