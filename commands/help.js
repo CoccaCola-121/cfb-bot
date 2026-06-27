@@ -75,7 +75,7 @@ const HELP_CATEGORIES = {
     label: '⚙️ Mod Tools',
     description: 'These are mostly for commissioners or bot admins.',
     lines: [
-      '`/loadweek [file or url] [label]` — Load a new Football GM export.',
+      '`/loadweek [file or url] [label]` — Load an export, or auto-pull the latest one from the export channel.',
       '`/datafiles` — See saved files and cache info.',
       '`/seasonmode` — Inspect or change the current season-data source.',
     ],

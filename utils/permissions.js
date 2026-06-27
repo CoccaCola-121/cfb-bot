@@ -14,11 +14,20 @@ const ADMIN_ROLE_IDS_BY_GUILD = {
   ],
 };
 
+const ADMIN_USER_IDS_BY_GUILD = {
+  [process.env.NZCFL_GUILD_ID]: [
+    '638767694988050432',
+  ],
+};
+
 function getAllowedRoleIds(guildId) {
   return (ADMIN_ROLE_IDS_BY_GUILD[guildId] || []).filter(Boolean);
 }
 
 function isBotAdmin(interaction) {
+  const allowedUserIds = (ADMIN_USER_IDS_BY_GUILD[interaction.guildId] || []).filter(Boolean);
+  if (allowedUserIds.includes(interaction.user?.id)) return true;
+
   const allowedRoleIds = getAllowedRoleIds(interaction.guildId);
   if (!allowedRoleIds.length) return false;
 
