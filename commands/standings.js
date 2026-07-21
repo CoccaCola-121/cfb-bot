@@ -7,6 +7,7 @@ const {
   getLatestLeagueData,
   getConferenceDivisionStandings,
   getConferenceLogoUrl,
+  getConferenceColor,
   getConferenceAbbrev,
   formatRecord,
 } = require('../utils/data');
@@ -71,8 +72,18 @@ module.exports = {
     }
 
     let conference = interaction.options.getString('conference');
+    let userTeam = null;
+
+    if (conference) {
+      try {
+        userTeam = await getUserTeam(leagueData, interaction.user.id);
+      } catch {
+        userTeam = null;
+      }
+    }
+
     if (!conference) {
-      const userTeam = await getUserTeam(leagueData, interaction.user.id);
+      userTeam = await getUserTeam(leagueData, interaction.user.id);
       if (!userTeam) {
         return interaction.editReply(
           '❌ No conference specified and no linked coach found. Pass a conference or run `/iam coach:<your name>` first.'
@@ -92,21 +103,24 @@ module.exports = {
     }
 
     const conferenceLogo = getConferenceLogoUrl(leagueData, confStandings.conferenceAbbrev);
+    const conferenceColor = getConferenceColor(leagueData, confStandings.conferenceAbbrev);
+    const highlightedTid = userTeam?.cid === confStandings.cid ? userTeam.tid : null;
 
     const embeds = confStandings.divisions.map((division) => {
       const sortedTeams = division.teams;
 
-      const lines = sortedTeams.map((team, index) => {
+      const lines = sortedTeams.map((team) => {
         const overall = formatRecord(team.wins, team.losses, team.ties);
         const confRec = formatRecord(team.confWins, team.confLosses, team.confTies);
         const divRec = formatRecord(team.divWins, team.divLosses, team.divTies);
         const crown = team.rank === 1 ? '👑 ' : '';
+        const marker = team.tid === highlightedTid ? '⭐ ' : '';
 
         const eliminated = isEliminatedFromDivision(leagueData, sortedTeams, team);
         const eliminatedTag = eliminated ? '\n❌ **Eliminated from division contention**' : '';
 
         return (
-          `\`${String(team.rank).padStart(2)}.\` ${crown}**${team.name}** (${team.abbrev})\n` +
+          `${marker}\`${String(team.rank).padStart(2)}.\` ${crown}**${team.name}** (${team.abbrev})\n` +
           `Overall: **${overall}**  •  Conf: **${confRec}**  •  Div: **${divRec}**` +
           `${eliminatedTag}`
         );
@@ -114,7 +128,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle(`${confStandings.conferenceAbbrev} — ${division.divisionName}`)
-        .setColor(0x2e86c1)
+        .setColor(conferenceColor)
         .setDescription(lines.join('\n\n'))
         .setFooter({
           text: 'Football GM export • Sorted by conference record, then head-to-head, then division record. Eliminated = cannot catch division leader.',

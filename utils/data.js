@@ -197,6 +197,22 @@
     ['SUN', 'https://livinghuman.host/espn_logos/CustomLogos/Conferences/Sun%20Belt.png'],
   ]);
 
+  const CONFERENCE_COLOR_OVERRIDES = new Map([
+    ['ACC', 0x1d4f91],
+    ['AAC', 0x0a5f38],
+    ['B12', 0xe03a3e],
+    ['B1G', 0x0088ce],
+    ['C-USA', 0x0057b8],
+    ['CUSA', 0x0057b8],
+    ['Independents', 0x6c757d],
+    ['MAC', 0x0b6f3a],
+    ['MW', 0x4b2e83],
+    ['P12', 0x004b8d],
+    ['SEC', 0x1f4e9e],
+    ['SB', 0xf2a900],
+    ['SUN', 0xf2a900],
+  ]);
+
   function normalizeLogoKey(value) {
     return String(value || '')
       .trim()
@@ -211,6 +227,10 @@
 
   const NORMALIZED_CONFERENCE_LOGO_OVERRIDES = new Map(
     [...CONFERENCE_LOGO_OVERRIDES.entries()].map(([key, value]) => [normalizeLogoKey(key), value])
+  );
+
+  const NORMALIZED_CONFERENCE_COLOR_OVERRIDES = new Map(
+    [...CONFERENCE_COLOR_OVERRIDES.entries()].map(([key, value]) => [normalizeLogoKey(key), value])
   );
 
   // ── File helpers ─────────────────────────────────────────────
@@ -1535,6 +1555,28 @@
     return null;
   }
 
+  function getConferenceColor(leagueData, cidOrAbbrevOrName) {
+    let candidates = [];
+
+    if (typeof cidOrAbbrevOrName === 'number') {
+      const confName = getConferenceName(leagueData, cidOrAbbrevOrName);
+      const confAbbrev = getConferenceAbbrev(leagueData, cidOrAbbrevOrName);
+      candidates = [confAbbrev, confName];
+    } else {
+      const raw = String(cidOrAbbrevOrName || '').trim();
+      candidates = [raw, getConferenceAbbrevFromName(raw)];
+    }
+
+    for (const candidate of candidates) {
+      const key = normalizeLogoKey(candidate);
+      if (NORMALIZED_CONFERENCE_COLOR_OVERRIDES.has(key)) {
+        return NORMALIZED_CONFERENCE_COLOR_OVERRIDES.get(key);
+      }
+    }
+
+    return 0x2e86c1;
+  }
+
   module.exports = {
     DATA_DIR,
     MAX_SAVED_FILES,
@@ -1590,4 +1632,5 @@
     buildTable,
     getTeamLogoUrl,
     getConferenceLogoUrl,
+    getConferenceColor,
   };
