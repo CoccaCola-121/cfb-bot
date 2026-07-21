@@ -22,7 +22,19 @@ function isEliminatedFromDivision(leagueData, divisionTeams, team) {
   if (!divisionTeams || divisionTeams.length === 0) return false;
   const divisionTeamTids = divisionTeams.map((entry) => entry.tid);
   const relevantGames = getRelevantConferenceGames(leagueData, divisionTeamTids);
+
   const state = buildCurrentState({ teams: divisionTeams });
+  const anyConferenceOrDivisionGamesPlayed = divisionTeams.some((entry) =>
+    (Number(entry.confWins) || 0) +
+      (Number(entry.confLosses) || 0) +
+      (Number(entry.confTies) || 0) +
+      (Number(entry.divWins) || 0) +
+      (Number(entry.divLosses) || 0) +
+      (Number(entry.divTies) || 0) >
+    0
+  );
+  if (!anyConferenceOrDivisionGamesPlayed) return false;
+
   const h2hMap = buildCurrentH2H(leagueData, divisionTeamTids);
   return !canStillWinDivision(state, h2hMap, relevantGames, divisionTeamTids, team.tid);
 }

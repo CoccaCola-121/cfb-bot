@@ -1022,8 +1022,57 @@
     };
   }
 
+  function normalizePlayerSearchText(value) {
+    return String(value || '')
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+  }
+
+  function levenshteinDistance(a, b) {
+    if (a === b) return 0;
+    if (!a) return b.length;
+    if (!b) return a.length;
+
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    let curr = new Array(b.length + 1);
+
+    for (let i = 1; i <= a.length; i++) {
+      curr[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(
+          curr[j - 1] + 1,
+          prev[j] + 1,
+          prev[j - 1] + cost
+        );
+      }
+      [prev, curr] = [curr, prev];
+    }
+
+    return prev[b.length];
+  }
+
+  function getPlayerTypoScore(query, fullName, lastName) {
+    const q = normalizePlayerSearchText(query);
+    const full = normalizePlayerSearchText(fullName);
+    const last = normalizePlayerSearchText(lastName);
+    if (!q || !full) return 0;
+
+    const maxDistance = q.length <= 5 ? 1 : q.length <= 10 ? 2 : 3;
+    const fullDistance = levenshteinDistance(q, full);
+    const lastDistance = last ? levenshteinDistance(q, last) : Number.POSITIVE_INFINITY;
+    const bestDistance = Math.min(fullDistance, lastDistance);
+
+    if (bestDistance > maxDistance) return 0;
+    return 25 - (bestDistance * 5);
+  }
+
   function findPlayerByName(leagueData, query) {
-    const q = String(query || '').toLowerCase().trim();
+    const q = normalizePlayerSearchText(query);
     if (!q) return null;
 
     const currentSeason = getCurrentSeason(leagueData);
@@ -1037,13 +1086,18 @@
         const fullName = `${player.firstName || ''} ${player.lastName || ''}`.trim();
         const hasCurrentStats = !!getLatestPlayerStats(player, currentSeason, false);
 
-        let score = 0;
-        const fullLower = fullName.toLowerCase();
+        let nameScore = 0;
+        const fullLower = normalizePlayerSearchText(fullName);
+        const lastLower = normalizePlayerSearchText(player.lastName);
 
-        if (fullLower === q) score += 100;
-        if (fullLower.startsWith(q)) score += 40;
-        if (fullLower.includes(q)) score += 20;
-        if ((player.lastName || '').toLowerCase() === q) score += 15;
+        if (fullLower === q) nameScore += 100;
+        if (fullLower.startsWith(q)) nameScore += 40;
+        if (fullLower.includes(q)) nameScore += 20;
+        if (lastLower === q) nameScore += 15;
+        if (nameScore === 0) nameScore += getPlayerTypoScore(q, fullName, player.lastName);
+        if (nameScore === 0) return { player, score: 0, fullName };
+
+        let score = nameScore;
         if (hasCurrentStats) score += 10;
         if (player.tid >= 0) score += 5;
         // Give draft prospects a small nudge over free agents so an exact-name
