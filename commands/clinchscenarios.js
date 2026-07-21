@@ -3,6 +3,7 @@ const {
   getLatestLeagueData,
   getConferenceDivisionStandings,
   getConferenceLogoUrl,
+  getConferenceColor,
 } = require('../utils/data');
 const { findMatchingTeam } = require('../utils/sheets');
 const {
@@ -289,7 +290,7 @@ module.exports = {
         : entry.scenarios.map((line, idx) => `\`${idx + 1}.\` ${line}`).join('\n');
       const embed = new EmbedBuilder()
         .setTitle(`Clinch Scenarios — ${entry.team.name} (${entry.team.abbrev})`)
-        .setColor(0x27ae60)
+        .setColor(getConferenceColor(leagueData, teamConference.conferenceAbbrev))
         .setDescription(description)
         .setFooter({
           text: `Week ${entry.week} • Division title clinch scenarios only`,
@@ -332,7 +333,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`Clinch Scenarios — ${confStandings.conferenceAbbrev}`)
-      .setColor(0x27ae60)
+      .setColor(getConferenceColor(leagueData, confStandings.conferenceAbbrev))
       .setDescription(divisionSections.join('\n\n').slice(0, 4000))
       .setFooter({
         text: `Week ${scenarioWeek ?? '?'} • Division title clinch scenarios only`,

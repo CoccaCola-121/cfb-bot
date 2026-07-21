@@ -8,7 +8,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData, getCurrentSeason, getTeamName,
   getLatestTeamSeason,
-  getConferenceName, getConferenceAbbrevFromName, safeNumber,
+  getConferenceName, getConferenceAbbrevFromName, getConferenceColor, safeNumber,
 } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
@@ -248,7 +248,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(title)
-      .setColor(0x3498db)
+      .setColor(confFilter ? getConferenceColor(leagueData, confFilter) : 0x3498db)
       .setDescription(lines.join('\n\n'))
       .setFooter({ text: footerParts.join(' · ') })
       .setTimestamp();

@@ -17,7 +17,7 @@ const {
   loadCoachIndex,
   resolveCoachToTeam,
 } = require('../utils/userMap');
-const { getLatestLeagueData, getTeamName, getTeamLogoUrl } = require('../utils/data');
+const { getLatestLeagueData, getTeamName, getTeamLogoUrl, getTeamColor } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
 
 module.exports = {
@@ -76,7 +76,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle('🪪 Your Coach Link')
-        .setColor(0x2b4b8c)
+        .setColor(getTeamColor(team, 0x2b4b8c))
         .setDescription(`Linked coach: **${current}**\n${teamLine}`)
         .setFooter({
           text: 'Use /iam coach:<name> to change, /iam clear:true to remove.',
@@ -131,7 +131,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('✅ Coach Linked')
-      .setColor(0x27ae60)
+      .setColor(getTeamColor(team, 0x27ae60))
       .setDescription(
         `Discord user <@${userId}> → **${resolvedName}**\n${teamLine}`
       )

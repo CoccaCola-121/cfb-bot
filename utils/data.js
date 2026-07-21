@@ -1533,6 +1533,45 @@
     return url || null;
   }
 
+  function normalizeColorValue(value) {
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return value >= 0 && value <= 0xffffff ? value : null;
+    }
+
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+
+    const hex = raw.startsWith('#') ? raw.slice(1) : raw;
+    if (/^[0-9a-f]{6}$/i.test(hex)) {
+      return parseInt(hex, 16);
+    }
+    if (/^[0-9a-f]{3}$/i.test(hex)) {
+      return parseInt(hex.split('').map((char) => char + char).join(''), 16);
+    }
+
+    return null;
+  }
+
+  function getTeamColor(team, fallback = 0x2b4b8c) {
+    if (!team) return fallback;
+
+    const candidates = [
+      team.color,
+      team.primaryColor,
+      team.primary,
+      team.colors?.[0],
+      team.colors?.primary,
+      team.colors?.primaryColor,
+    ];
+
+    for (const candidate of candidates) {
+      const color = normalizeColorValue(candidate);
+      if (color !== null) return color;
+    }
+
+    return fallback;
+  }
+
   function getConferenceLogoUrl(leagueData, cidOrAbbrevOrName) {
     let candidates = [];
 
@@ -1631,6 +1670,7 @@
     getRedditComments,
     buildTable,
     getTeamLogoUrl,
+    getTeamColor,
     getConferenceLogoUrl,
     getConferenceColor,
   };

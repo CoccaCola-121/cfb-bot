@@ -18,6 +18,7 @@ const {
   findTeamByName,
   getTeamSchedule,
   getTeamLogoUrl,
+  getTeamColor,
   getCurrentSeason,
   getLatestTeamSeason,
   safeNumber,
@@ -244,7 +245,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`🔥 Trash Talk — ${teamLabel}`)
-      .setColor(0xe74c3c)
+      .setColor(getTeamColor(team, 0xe74c3c))
       .setDescription(jab)
       .setFooter({ text: 'Light-hearted • all in good fun' })
       .setTimestamp();

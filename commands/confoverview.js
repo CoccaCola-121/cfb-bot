@@ -15,6 +15,7 @@ const {
   getTeamName,
   findConferenceByAbbrev,
   getConferenceLogoUrl,
+  getConferenceColor,
   safeNumber,
   formatRecord,
 } = require('../utils/data');
@@ -222,7 +223,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`🏟️ ${confAbbrev} — Conference Overview`)
-      .setColor(0x16a085)
+      .setColor(getConferenceColor(leagueData, confAbbrev))
       .addFields(
         {
           name: '🏆 Top Teams',

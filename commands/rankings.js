@@ -10,6 +10,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData,
   getTeamLogoUrl,
+  getTeamColor,
   getTeamName,
 } = require('../utils/data');
 const { matchesTeam: sheetMatchesTeam } = require('../utils/sheets');
@@ -58,19 +59,17 @@ module.exports = {
 
     const leagueData = getLatestLeagueData();
     const lines = entries.map((entry) => `**${entry.rank}.** ${entry.name}`);
+    const topTeam = leagueData ? findTeamByName(leagueData, entries[0]?.name) : null;
 
     const embed = new EmbedBuilder()
       .setTitle(`Top ${entries.length} — ${label || 'Current Rankings'}`)
-      .setColor(0x2980b9)
+      .setColor(getTeamColor(topTeam, 0x2980b9))
       .setDescription(lines.join('\n'))
       .setTimestamp();
 
-    if (leagueData) {
-      const topTeam = findTeamByName(leagueData, entries[0]?.name);
-      if (topTeam) {
-        const logo = getTeamLogoUrl(topTeam);
-        if (logo) embed.setThumbnail(logo);
-      }
+    if (topTeam) {
+      const logo = getTeamLogoUrl(topTeam);
+      if (logo) embed.setThumbnail(logo);
     }
 
     return interaction.editReply({ embeds: [embed] });

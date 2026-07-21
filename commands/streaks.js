@@ -33,6 +33,7 @@ const {
   getLatestLeagueData,
   getTeamName,
   getTeamLogoUrl,
+  getTeamColor,
 } = require('../utils/data');
 
 function displayTeamAbbrev(value, leagueData) {
@@ -148,7 +149,7 @@ async function teamMode(interaction, vs, activeOnly) {
   const lossHeader = activeOnly ? '🔴 Active Loss Streaks' : '🔴 Top 5 Loss Streaks';
   const embed = new EmbedBuilder()
     .setTitle(`📈 ${myName} · ${modeLabel}${filterLabel ? ` vs ${filterLabel}` : ''}`)
-    .setColor(0x2980b9)
+    .setColor(getTeamColor(myTeam, 0x2980b9))
     .addFields(
       { name: winHeader,  value: trimField(winText)  },
       { name: lossHeader, value: trimField(lossText) },
@@ -169,6 +170,9 @@ async function teamMode(interaction, vs, activeOnly) {
 async function coachMode(interaction, vs, activeOnly) {
   const leagueData = getLatestLeagueData();
   const myCoach = getUserCoachName(interaction.user.id);
+  const myTeam = leagueData
+    ? await getUserTeam(leagueData, interaction.user.id)
+    : null;
 
   if (!myCoach) {
     return interaction.editReply(
@@ -236,7 +240,7 @@ async function coachMode(interaction, vs, activeOnly) {
   const lossHeader = activeOnly ? '🔴 Active Loss Streaks' : '🔴 Top 5 Loss Streaks';
   const embed = new EmbedBuilder()
     .setTitle(`📈 ${myCoach} · ${titleLabel}${filterSuffix}`)
-    .setColor(0x9b59b6)
+    .setColor(getTeamColor(myTeam, 0x9b59b6))
     .addFields(
       { name: winHeader,  value: trimField(winText)  },
       { name: lossHeader, value: trimField(lossText) },

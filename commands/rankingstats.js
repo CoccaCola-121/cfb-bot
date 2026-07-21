@@ -9,6 +9,7 @@ const {
   getLatestLeagueData,
   getTeamName,
   getTeamLogoUrl,
+  getTeamColor,
 } = require('../utils/data');
 const {
   matchesTeam: sheetMatchesTeam,
@@ -510,7 +511,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`Historical Ranking Stats — ${getTeamName(team)}`)
-      .setColor(0xf39c12)
+      .setColor(getTeamColor(team, 0xf39c12))
       .addFields(
         {
           name: 'All-Time Weeks Ranked',
