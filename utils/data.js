@@ -1529,7 +1529,7 @@
       }
     }
 
-    const url = String(team?.imgURL || team?.imgURLSmall || '').trim();
+    const url = String(team?.imgURL || '').trim();
     return url || null;
   }
 
