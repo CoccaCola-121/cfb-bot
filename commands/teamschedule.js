@@ -3,7 +3,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLatestLeagueData, getTeamSchedule, getCurrentSeason, getTeamName, getTeamColor } = require('../utils/data');
+const { getLatestLeagueData, getTeamSchedule, getCurrentSeason, getTeamName } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
 const { getWeekLabel } = require('../utils/weekLabels');
 const { findMatchingTeam } = require('../utils/sheets');
@@ -260,7 +260,7 @@ module.exports = {
             ? `📅 ${result.team.region} ${result.team.name} (${result.team.abbrev}) Schedule`
             : `${result.team.abbrev} Schedule — continued`
         )
-        .setColor(getTeamColor(result.team, 0x5865f2))
+        .setColor(0x5865f2)
         .setDescription(chunk.join('\n'))
         .setFooter({
           text: targetYear > currentSeason

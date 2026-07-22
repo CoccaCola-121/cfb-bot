@@ -9,7 +9,6 @@ const {
   getLatestTeamSeason,
   findTeamByName,
   getTeamLogoUrl,
-  getTeamColor,
   getTeamName,
   safeNumber,
   getLiveTeamRecord,
@@ -328,7 +327,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`📜 ${teamLabel} (${team.abbrev}) — Program History`)
-      .setColor(getTeamColor(team, 0x2c3e50))
+      .setColor(0x2c3e50)
       .addFields(fields)
       .setFooter({ text: 'NZCFL Coach Resume 2.0 + Football GM export' })
       .setTimestamp();

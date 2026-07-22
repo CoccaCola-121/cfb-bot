@@ -11,7 +11,6 @@ const {
   getLatestPlayerStats,
   getLatestPosition,
   getTeamName,
-  getTeamColor,
   safeNumber,
   formatRecord,
 } = require('../utils/data');
@@ -270,7 +269,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`⚖️ ${a.abbrev} vs ${b.abbrev}`)
-      .setColor(getTeamColor(a, 0x34495e))
+      .setColor(0x34495e)
       .addFields(
         {
           name: `${a.name} (${a.abbrev})`,

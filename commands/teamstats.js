@@ -12,7 +12,6 @@ const {
   getConferenceName,
   getDivisionName,
   getTeamLogoUrl,
-  getTeamColor,
   formatRecord,
   safeNumber,
   getLiveTeamRecord,
@@ -502,7 +501,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`${rankPrefix}${getTeamName(team)} (${team.abbrev})`)
-      .setColor(getTeamColor(team, 0x1a6b3c))
+      .setColor(0x1a6b3c)
       .addFields(
         {
           name: '📊 Record',

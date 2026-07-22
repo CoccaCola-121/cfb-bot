@@ -5,7 +5,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamColor, getTeamName } = require('../utils/data');
+const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamName } = require('../utils/data');
 const { normalize, findMatchingTeam, canonicalTeamAlias } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
@@ -514,7 +514,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle(`🧢 ${c.coach}`)
-        .setColor(getTeamColor(leagueTeam, 0x2b4b8c))
+        .setColor(0x2b4b8c)
         .setDescription(`**${c.team}**  •  ${c.years} season${c.years !== 1 ? 's' : ''} coached`)
         .addFields(fields)
         .setFooter({ text: 'NZCFL Info + NZCFL Coach Resume 2.0 + Football GM export' })

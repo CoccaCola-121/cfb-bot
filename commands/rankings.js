@@ -10,7 +10,6 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData,
   getTeamLogoUrl,
-  getTeamColor,
   getTeamName,
 } = require('../utils/data');
 const { matchesTeam: sheetMatchesTeam } = require('../utils/sheets');
@@ -63,7 +62,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`Top ${entries.length} — ${label || 'Current Rankings'}`)
-      .setColor(getTeamColor(topTeam, 0x2980b9))
+      .setColor(0x2980b9)
       .setDescription(lines.join('\n'))
       .setTimestamp();
 

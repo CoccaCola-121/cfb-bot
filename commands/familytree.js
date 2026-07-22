@@ -34,7 +34,6 @@ const {
   getLatestLeagueData,
   getTeamName,
   getTeamLogoUrl,
-  getTeamColor,
 } = require('../utils/data');
 
 const MIN_GAMES = 3;
@@ -138,7 +137,7 @@ async function teamMode(interaction) {
 
   const embed = new EmbedBuilder()
     .setTitle(`🌳 ${myName} · Family Tree`)
-    .setColor(getTeamColor(myTeam, 0x16a085))
+    .setColor(0x16a085)
     .setDescription(
       `Opponents are ranked by **dominance** *(margin × log₂(games+1))*. Need ≥ ${MIN_GAMES} games to qualify.`,
     )
@@ -217,7 +216,7 @@ async function coachMode(interaction) {
 
   const embed = new EmbedBuilder()
     .setTitle(`🌳 ${myCoach} · Career Family Tree`)
-    .setColor(getTeamColor(myTeam, 0x9b59b6))
+    .setColor(0x9b59b6)
     .setDescription(
       `Opponents are ranked by **dominance** *(margin × log₂(games+1))*. Need ≥ ${MIN_GAMES} games to qualify.`,
     )

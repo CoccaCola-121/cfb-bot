@@ -13,7 +13,6 @@ const {
   getTeamName,
   safeNumber,
   getCurrentSeason,
-  getTeamColor,
 } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
 const { getWeekLabel, isPostseason } = require('../utils/weekLabels');
@@ -366,7 +365,7 @@ module.exports = {
       : `${awayName} ${awayPts} @ ${homePts} ${homeName}`;
 
     const embed = new EmbedBuilder()
-      .setColor(getTeamColor(requestedTeam, requestedWon ? 0x2ecc71 : 0xe74c3c))
+      .setColor(requestedWon ? 0x2ecc71 : 0xe74c3c)
       .setTitle(`${label} • ${matchup}`)
       .addFields(
         {
