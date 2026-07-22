@@ -352,7 +352,7 @@ module.exports = {
       const totalW = baseResume.wins - existingW + liveW;
       const totalL = baseResume.losses - existingL + liveL;
       const liveRecord = `${liveW}-${liveL}`;
-      const canonicalTeamName = getTeamName(leagueTeam);
+      const canonicalTeamName = coach.team || getTeamName(leagueTeam);
       const newHistory = [
         ...baseResume.history.filter(h => h.year !== currentSeason),
         { year: currentSeason, record: liveRecord, team: canonicalTeamName, livePatched: true },
