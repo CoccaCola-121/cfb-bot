@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLatestLeagueData, getTeamName, getTeamLogoUrl } = require('../utils/data');
+const { getLatestLeagueData, getTeamName, getTeamLogoUrl, getTeamColor } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
 const {
   normalizePos,
@@ -94,7 +94,7 @@ module.exports = {
       : `🧢 ${getTeamName(team)} Recruit Fits`;
 
     const embed = new EmbedBuilder()
-      .setColor(0x2b4b8c)
+      .setColor(getTeamColor(team, 0x2b4b8c))
       .setTitle(title)
       .setDescription(lines.join('\n'))
       .setThumbnail(getTeamLogoUrl(team))

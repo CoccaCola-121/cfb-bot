@@ -30,6 +30,7 @@ const {
   getLatestLeagueData,
   getTeamName,
   getTeamLogoUrl,
+  getTeamColor,
   findTeamByName,
 } = require('../utils/data');
 
@@ -213,7 +214,7 @@ async function teamMode(interaction, opponent) {
 
   const embed = new EmbedBuilder()
     .setTitle(`🏈 ${myName} vs ${oppHeader}`)
-    .setColor(0x2980b9)
+    .setColor(getTeamColor(myTeam, 0x2980b9))
     .setDescription(
       `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}\n*H2H tracking starts in ${TRACKED_SINCE_SEASON}.*`,
     )
@@ -331,7 +332,7 @@ async function coachMode(interaction, opponent) {
   const titleSuffix = useCoach ? '(coach vs coach)' : '(coach vs team)';
   const embed = new EmbedBuilder()
     .setTitle(`🏈 ${myCoach} vs ${opponentHeader}  ${titleSuffix}`)
-    .setColor(useCoach ? 0x9b59b6 : 0x2980b9)
+    .setColor(getTeamColor(myTeam, useCoach ? 0x9b59b6 : 0x2980b9))
     .setDescription(
       `**${fmtRecord(record)}**  ·  ${fmtPct(record.pct)}  ·  Streak ${fmtStreak(streak)}\n*H2H tracking starts in ${TRACKED_SINCE_SEASON}.*`,
     )

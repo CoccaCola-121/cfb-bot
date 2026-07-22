@@ -15,6 +15,7 @@ const {
   getTeamName,
   safeNumber,
   getTeamLogoUrl,
+  getTeamColor,
 } = require('../utils/data');
 const {
   matchesTeam,
@@ -636,7 +637,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`🧾 ${`${player.firstName || ''} ${player.lastName || ''}`.trim()}`)
-      .setColor(0x95a5a6)
+      .setColor(getTeamColor(logoTeam, 0x95a5a6))
       .addFields(...fields)
       .setFooter({ text: 'Football GM export + NZCFL Info' })
       .setTimestamp();

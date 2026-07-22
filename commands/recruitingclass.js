@@ -3,7 +3,7 @@
 // ============================================================
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLatestLeagueData, getCurrentSeason, getTeamName, getTeamLogoUrl } = require('../utils/data');
+const { getLatestLeagueData, getCurrentSeason, getTeamName, getTeamLogoUrl, getTeamColor } = require('../utils/data');
 const { normalize, matchesTeam, getTeamAliases, safeNum } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserTeam } = require('../utils/userMap');
@@ -286,7 +286,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`🧢 ${getTeamName(team)} (${abbrev}) — ${recruitSheetName}`)
-      .setColor(0x8e44ad)
+      .setColor(getTeamColor(team, 0x8e44ad))
       .addFields(
         { name: 'Class Summary', value: summaryValue,            inline: false },
         { name: 'Commits',       value: commitsField || '—',     inline: false },

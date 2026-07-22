@@ -8,6 +8,7 @@ const {
   getLatestPosition,
   getTeamName,
   getTeamLogoUrl,
+  getTeamColor,
   getCurrentSeason,
 } = require('../utils/data');
 const { getUserTeam } = require('../utils/userMap');
@@ -425,7 +426,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`🩹 ${getTeamName(team)} (${team.abbrev}) Injuries`)
-      .setColor(0xe67e22)
+      .setColor(getTeamColor(team, 0xe67e22))
       .setDescription(lines.join('\n'))
       .setFooter({
         text: explicitDepthFound

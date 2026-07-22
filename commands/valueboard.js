@@ -21,7 +21,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
-  getLatestLeagueData, getTeamName, getTeamLogoUrl, getConferenceLogoUrl, getConferenceColor,
+  getLatestLeagueData, getTeamName, getTeamLogoUrl, getTeamColor, getConferenceLogoUrl, getConferenceColor,
   getConferenceName, getConferenceAbbrevFromName,
 } = require('../utils/data');
 const { normalize, matchesTeam, safeNum } = require('../utils/sheets');
@@ -301,7 +301,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle(`📊 ${getTeamName(team)} — ${TARGET_YEAR} Category Rankings`)
-        .setColor(0x27ae60)
+        .setColor(getTeamColor(team, 0x27ae60))
         .setDescription(`Conference: **${confAbbrev}**\n${avgLine}\n${appLine}`)
         .addFields(fields)
         .setFooter({ text: 'NZCFL Info' })
