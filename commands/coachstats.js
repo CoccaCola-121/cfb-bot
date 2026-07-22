@@ -167,10 +167,12 @@ function parseResumeSheet(rows) {
     }
 
     const teamByYear = new Map();
+    let lastTeam = null;
     for (const col of teamYearCols) {
       const y = header[col];
       const v = (r[col] || '').trim();
-      if (v) teamByYear.set(y, v);
+      if (v) lastTeam = v;
+      if (lastTeam) teamByYear.set(y, lastTeam);
     }
 
     const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]
@@ -257,12 +259,7 @@ function buildTeamHistory(history, currentSeason) {
   return spans.map(s => {
     const start = String(s.startYear);
     const end   = String(s.endYear);
-    // Active at current team: use "2056- " format with space
-    const yearLabel = (end === currentSeason || (!currentSeason && s === spans[spans.length - 1]))
-      ? `${start}- `
-      : start === end
-        ? start
-        : `${start}-${end.slice(-2)}`;
+    const yearLabel = start === end ? start : `${start}-${end.slice(-2)}`;
     const recStr = s.w + s.l > 0 ? ` (${s.w}-${s.l})` : '';
     return `**${yearLabel}:** ${s.team}${recStr}`;
   });
