@@ -168,7 +168,8 @@ function parseResumeSheet(rows) {
 
     const teamByYear = new Map();
     let lastTeam = null;
-    for (const col of teamYearCols) {
+    const sortedTeamYearCols = [...teamYearCols].sort((a, b) => +header[a] - +header[b]);
+    for (const col of sortedTeamYearCols) {
       const y = header[col];
       const v = (r[col] || '').trim();
       if (v) lastTeam = v;
@@ -209,6 +210,13 @@ function findTeamByName(leagueData, name) {
   return findMatchingTeam(leagueData, name);
 }
 
+function teamNamesLikelySame(a, b) {
+  const an = normalize(canonicalTeamAlias(a));
+  const bn = normalize(canonicalTeamAlias(b));
+  if (!an || !bn) return false;
+  return an === bn || an.includes(bn) || bn.includes(an);
+}
+
 // Build team history spans like: "2050-2055: Michigan State (65-0)"
 function buildTeamHistory(history, currentSeason) {
   // Only entries with a team
@@ -233,9 +241,7 @@ function buildTeamHistory(history, currentSeason) {
   for (let i = 1; i < withTeam.length; i++) {
     const curr = withTeam[i];
     const consecutive = +curr.year === +prevYear + 1;
-    const sameTeam =
-      normalize(canonicalTeamAlias(curr.team)) ===
-      normalize(canonicalTeamAlias(team));
+    const sameTeam = teamNamesLikelySame(curr.team, team);
 
     if (sameTeam && consecutive) {
       // Find record for this year

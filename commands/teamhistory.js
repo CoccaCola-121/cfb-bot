@@ -77,7 +77,8 @@ function parseResumeRows(rows) {
     const teamByYear = new Map();
     let lastTeam = null;
 
-    for (const col of teamYearCols) {
+    const sortedTeamYearCols = [...teamYearCols].sort((a, b) => +header[a] - +header[b]);
+    for (const col of sortedTeamYearCols) {
       const y = header[col];
       const v = (r[col] || '').trim();
       if (v) lastTeam = v;
@@ -112,7 +113,14 @@ function buildEras(coachRows) {
   let cur = null;
 
   for (const r of sorted) {
-    if (cur && cur.coach === r.coach && +r.year === +cur.endYear + 1) {
+    const sameTeam =
+      !cur ||
+      !cur.team ||
+      !r.team ||
+      normalize(cur.team).includes(normalize(r.team)) ||
+      normalize(r.team).includes(normalize(cur.team));
+
+    if (cur && cur.coach === r.coach && sameTeam && +r.year === +cur.endYear + 1) {
       cur.endYear = r.year;
       cur.wins += r.wins;
       cur.losses += r.losses;
@@ -120,6 +128,7 @@ function buildEras(coachRows) {
       if (cur) spans.push(cur);
       cur = {
         coach: r.coach,
+        team: r.team,
         startYear: r.year,
         endYear: r.year,
         wins: r.wins,

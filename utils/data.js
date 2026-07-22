@@ -1515,9 +1515,6 @@
   function getTeamLogoUrl(team) {
     if (!team) return null;
 
-    const exportUrl = String(team?.imgURL || team?.imgURLSmall || '').trim();
-    if (/^https?:\/\//i.test(exportUrl)) return exportUrl;
-
     const candidates = [
       team.abbrev,
       team.region,
@@ -1532,7 +1529,8 @@
       }
     }
 
-    return null;
+    const url = String(team?.imgURL || '').trim();
+    return url || null;
   }
 
   function normalizeColorValue(value) {
