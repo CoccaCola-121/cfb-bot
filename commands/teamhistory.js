@@ -75,11 +75,13 @@ function parseResumeRows(rows) {
     }
 
     const teamByYear = new Map();
+    let lastTeam = null;
 
     for (const col of teamYearCols) {
       const y = header[col];
       const v = (r[col] || '').trim();
-      if (v) teamByYear.set(y, v);
+      if (v) lastTeam = v;
+      if (lastTeam) teamByYear.set(y, lastTeam);
     }
 
     const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])];

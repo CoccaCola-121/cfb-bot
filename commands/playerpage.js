@@ -6,6 +6,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   getLatestLeagueData,
   getTeamMap,
+  getTeamByTid,
   getLatestPosition,
   getLatestPlayerStats,
   findPlayerByName,
@@ -517,7 +518,7 @@ module.exports = {
     }
 
     const teamMap = getTeamMap(leagueData);
-    const team = player.tid >= 0 ? teamMap.get(player.tid) : null;
+    const team = player.tid >= 0 ? getTeamByTid(leagueData, player.tid) : null;
     const isDraftProspect = player.tid === -2;
 
     const currentSeason = getCurrentSeason(leagueData);
