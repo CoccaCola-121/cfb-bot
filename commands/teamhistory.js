@@ -213,10 +213,6 @@ function mergeErasByCoachForWinSort(eras) {
 }
 
 function sortEras(eras, sortMode) {
-  if (sortMode === 'chronological') {
-    return [...eras].sort((a, b) => +a.startYear - +b.startYear || a.coach.localeCompare(b.coach));
-  }
-
   if (sortMode === 'wins') {
     return mergeErasByCoachForWinSort(eras);
   }
@@ -328,7 +324,6 @@ module.exports = {
         .setDescription('Sort coaching eras')
         .setRequired(false)
         .addChoices(
-          { name: 'Most recent', value: 'recent' },
           { name: 'Chronological', value: 'chronological' },
           { name: 'Win total', value: 'wins' }
         )
@@ -361,7 +356,7 @@ module.exports = {
     }
 
     if (!team) return interaction.editReply(`❌ No team found matching **${teamArg}**.`);
-    const sortMode = interaction.options.getString('sort') || 'recent';
+    const sortMode = interaction.options.getString('sort') || 'chronological';
 
     const teamLabel = `${team.region} ${team.name}`;
     const teamAliasesNorm = new Set(

@@ -1515,8 +1515,24 @@
   function getTeamLogoUrl(team) {
     if (!team) return null;
 
-    const url = String(team?.imgURL || '').trim();
-    return /^https?:\/\//i.test(url) ? url : null;
+    const candidates = [
+      team.imgURL,
+      team.imgUrl,
+      team.logoURL,
+      team.logoUrl,
+      team.imageURL,
+      team.imageUrl,
+    ];
+
+    for (const raw of candidates) {
+      const url = String(raw || '').trim();
+      if (!url) continue;
+      if (/^https?:\/\//i.test(url)) return url;
+      if (url.startsWith('//')) return `https:${url}`;
+      if (url.startsWith('/')) return `https://play.football-gm.com${url}`;
+    }
+
+    return null;
   }
 
   function normalizeColorValue(value) {
