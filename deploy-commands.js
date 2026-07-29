@@ -23,18 +23,17 @@ for (const file of commandFiles) {
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-// Collect all guild IDs we want to register commands in.
-// Supports the legacy GUILD_ID var, the NZCFL production guild, and the test guild.
+// Collect the one guild ID we want to register commands in.
+// TEST_GUILD_ID is intentionally ignored; the old test server no longer exists.
 const guildIds = [
   process.env.NZCFL_GUILD_ID || process.env.GUILD_ID,
-  process.env.TEST_GUILD_ID,
 ]
   .filter(Boolean)              // remove undefined/empty values
   .filter((id, i, arr) => arr.indexOf(id) === i); // de-dupe in case GUILD_ID === NZCFL_GUILD_ID
 
 (async () => {
   if (guildIds.length === 0) {
-    console.error('❌ No guild IDs found. Set NZCFL_GUILD_ID (or GUILD_ID) and/or TEST_GUILD_ID.');
+    console.error('❌ No guild IDs found. Set NZCFL_GUILD_ID (or GUILD_ID).');
     process.exit(1);
   }
 

@@ -146,6 +146,94 @@ function buildEras(coachRows) {
   return spans;
 }
 
+function expandEraYears(era) {
+  const years = [];
+  const start = Number(era.startYear);
+  const end = Number(era.endYear);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return years;
+  for (let year = start; year <= end; year++) years.push(year);
+  return years;
+}
+
+function formatYearSegments(years) {
+  const sorted = [...new Set(years.map(Number).filter(Number.isFinite))]
+    .sort((a, b) => a - b);
+  if (!sorted.length) return '';
+
+  const segments = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const year = sorted[i];
+    if (year === prev + 1) {
+      prev = year;
+      continue;
+    }
+    segments.push(start === prev ? String(start) : `${start}-${prev}`);
+    start = year;
+    prev = year;
+  }
+
+  segments.push(start === prev ? String(start) : `${start}-${prev}`);
+  return segments.join(', ');
+}
+
+function mergeErasByCoachForWinSort(eras) {
+  const merged = new Map();
+
+  for (const era of eras) {
+    const key = normalize(era.coach);
+    const existing = merged.get(key);
+    const years = expandEraYears(era);
+
+    if (existing) {
+      existing.wins += era.wins;
+      existing.losses += era.losses;
+      existing.years.push(...years);
+      existing.startYear = Math.min(Number(existing.startYear), Number(era.startYear));
+      existing.endYear = Math.max(Number(existing.endYear), Number(era.endYear));
+    } else {
+      merged.set(key, {
+        coach: era.coach,
+        startYear: era.startYear,
+        endYear: era.endYear,
+        wins: era.wins,
+        losses: era.losses,
+        years,
+      });
+    }
+  }
+
+  return [...merged.values()].sort((a, b) =>
+    b.wins - a.wins ||
+    (b.wins + b.losses) - (a.wins + a.losses) ||
+    a.coach.localeCompare(b.coach)
+  );
+}
+
+function sortEras(eras, sortMode) {
+  if (sortMode === 'chronological') {
+    return [...eras].sort((a, b) => +a.startYear - +b.startYear || a.coach.localeCompare(b.coach));
+  }
+
+  if (sortMode === 'wins') {
+    return mergeErasByCoachForWinSort(eras);
+  }
+
+  return [...eras].sort((a, b) => +b.startYear - +a.startYear || a.coach.localeCompare(b.coach));
+}
+
+function formatEraLine(era, sortMode) {
+  const years = sortMode === 'wins'
+    ? formatYearSegments(era.years)
+    : (String(era.startYear) === String(era.endYear)
+        ? String(era.startYear)
+        : `${era.startYear}-${era.endYear}`);
+  const rec = era.wins + era.losses > 0 ? ` (${era.wins}-${era.losses})` : '';
+  return `**${years}:** ${era.coach}${rec}`;
+}
+
 function teamChampionshipYears(teamAliasesNorm, allRows) {
   const out = [];
 
@@ -233,6 +321,17 @@ module.exports = {
         .setName('team')
         .setDescription('Team name or abbreviation, defaults to your linked team')
         .setRequired(false)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('sort')
+        .setDescription('Sort coaching eras')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Most recent', value: 'recent' },
+          { name: 'Chronological', value: 'chronological' },
+          { name: 'Win total', value: 'wins' }
+        )
     ),
 
   async execute(interaction) {
@@ -262,6 +361,7 @@ module.exports = {
     }
 
     if (!team) return interaction.editReply(`❌ No team found matching **${teamArg}**.`);
+    const sortMode = interaction.options.getString('sort') || 'recent';
 
     const teamLabel = `${team.region} ${team.name}`;
     const teamAliasesNorm = new Set(
@@ -302,15 +402,8 @@ module.exports = {
       allEras.push(...buildEras(rows));
     }
 
-    allEras.sort((a, b) => +b.startYear - +a.startYear);
-
-    const eraLines = allEras.slice(0, 12).map((s) => {
-      const start = String(s.startYear);
-      const end = String(s.endYear);
-      const yrs = start === end ? start : `${start}–${end}`;
-      const rec = s.wins + s.losses > 0 ? ` (${s.wins}-${s.losses})` : '';
-      return `**${yrs}:** ${s.coach}${rec}`;
-    });
+    const sortedEras = sortEras(allEras, sortMode);
+    const eraLines = sortedEras.slice(0, 12).map((s) => formatEraLine(s, sortMode));
 
     const champYears = teamChampionshipYears(teamAliasesNorm, allRows);
 
@@ -325,7 +418,7 @@ module.exports = {
         inline: false,
       },
       {
-        name: `📋 Coaching Eras (${allEras.length})`,
+        name: `📋 Coaching Eras (${sortedEras.length})`,
         value: eraLines.length ? eraLines.join('\n').slice(0, 1020) : '*(none)*',
         inline: false,
       },

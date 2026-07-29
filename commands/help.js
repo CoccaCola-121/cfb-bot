@@ -49,7 +49,7 @@ const HELP_CATEGORIES = {
       '`/h2h opponent:<team|coach> [as]` — Head-to-head record against a team or coach.',
       '`/streaks [vs] [as] [active:no]` — Rivalry streaks. Defaults to active streaks.',
       '`/familytree [as]` — Shows who you own and who owns you.',
-      '`/teamhistory <team>` — See a program’s coaching eras and titles.',
+      '`/teamhistory <team> sort:<mode>` — See a program’s coaching eras and titles.',
     ],
     tip: 'If you type a coach name into `/h2h opponent:...`, it now auto-switches to coach mode unless you override it.',
   },

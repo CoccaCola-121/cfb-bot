@@ -161,15 +161,22 @@ function formatRecord(w, l) {
 //
 // Returns a new resume-shaped object (does not mutate the input).
 function applyOverridesToResume(resume, coachName) {
-  if (!resume) return resume;
   const overrides = getOverridesForCoach(coachName);
   if (overrides.size === 0) return resume;
 
-  let totalW = Number(resume.wins) || 0;
-  let totalL = Number(resume.losses) || 0;
+  const baseResume = resume || {
+    record: '0-0',
+    wins: 0,
+    losses: 0,
+    pct: 0,
+    history: [],
+  };
+
+  let totalW = Number(baseResume.wins) || 0;
+  let totalL = Number(baseResume.losses) || 0;
 
   const historyByYear = new Map();
-  for (const h of resume.history || []) {
+  for (const h of baseResume.history || []) {
     if (h && h.year != null) historyByYear.set(String(h.year), { ...h });
   }
 
@@ -206,7 +213,7 @@ function applyOverridesToResume(resume, coachName) {
   );
 
   return {
-    ...resume,
+    ...baseResume,
     wins: totalW,
     losses: totalL,
     pct: games > 0 ? totalW / games : 0,
@@ -222,12 +229,18 @@ function applyOverridesToResume(resume, coachName) {
 // by treating each override as additive (which is the only thing we can do
 // without knowing what the original year contributed).
 function applyOverridesToLeaderboardRecord(record, coachName, fullHistory = null) {
-  if (!record) return record;
   const overrides = getOverridesForCoach(coachName);
   if (overrides.size === 0) return record;
 
-  let totalW = Number(record.wins) || 0;
-  let totalL = Number(record.losses) || 0;
+  const baseRecord = record || {
+    wins: 0,
+    losses: 0,
+    pct: 0,
+    record: '0-0',
+  };
+
+  let totalW = Number(baseRecord.wins) || 0;
+  let totalL = Number(baseRecord.losses) || 0;
 
   if (Array.isArray(fullHistory) && fullHistory.length) {
     for (const [year, ov] of overrides.entries()) {
@@ -256,7 +269,7 @@ function applyOverridesToLeaderboardRecord(record, coachName, fullHistory = null
 
   const games = totalW + totalL;
   return {
-    ...record,
+    ...baseRecord,
     wins: totalW,
     losses: totalL,
     pct: games > 0 ? totalW / games : 0,

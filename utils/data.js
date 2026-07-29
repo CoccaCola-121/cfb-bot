@@ -1515,22 +1515,8 @@
   function getTeamLogoUrl(team) {
     if (!team) return null;
 
-    const candidates = [
-      getTeamName(team),
-      team.region,
-      team.name,
-      team.abbrev,
-    ];
-
-    for (const candidate of candidates) {
-      const key = normalizeLogoKey(candidate);
-      if (NORMALIZED_TEAM_LOGO_OVERRIDES.has(key)) {
-        return NORMALIZED_TEAM_LOGO_OVERRIDES.get(key);
-      }
-    }
-
     const url = String(team?.imgURL || '').trim();
-    return url || null;
+    return /^https?:\/\//i.test(url) ? url : null;
   }
 
   function normalizeColorValue(value) {
