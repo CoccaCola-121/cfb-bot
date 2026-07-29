@@ -167,13 +167,11 @@ function parseResumeSheet(rows) {
     }
 
     const teamByYear = new Map();
-    let lastTeam = null;
     const sortedTeamYearCols = [...teamYearCols].sort((a, b) => +header[a] - +header[b]);
     for (const col of sortedTeamYearCols) {
       const y = header[col];
       const v = (r[col] || '').trim();
-      if (v) lastTeam = v;
-      if (lastTeam) teamByYear.set(y, lastTeam);
+      if (v) teamByYear.set(y, v);
     }
 
     const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]

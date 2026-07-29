@@ -19,6 +19,7 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
 const { getUserTeam, loadCoachIndex } = require('../utils/userMap');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
+const { getOverridesForCoach } = require('../utils/coachOverrides');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
@@ -75,14 +76,18 @@ function parseResumeRows(rows) {
     }
 
     const teamByYear = new Map();
-    let lastTeam = null;
 
     const sortedTeamYearCols = [...teamYearCols].sort((a, b) => +header[a] - +header[b]);
     for (const col of sortedTeamYearCols) {
       const y = header[col];
       const v = (r[col] || '').trim();
-      if (v) lastTeam = v;
-      if (lastTeam) teamByYear.set(y, lastTeam);
+      if (v) teamByYear.set(y, v);
+    }
+
+    const overrides = getOverridesForCoach(coach);
+    for (const [year, ov] of overrides.entries()) {
+      recordByYear.set(year, `${ov.wins}-${ov.losses}`);
+      if (ov.team) teamByYear.set(year, ov.team);
     }
 
     const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])];

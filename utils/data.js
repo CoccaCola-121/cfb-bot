@@ -172,7 +172,7 @@
     ['Wake Forest', 'https://images2.imgbox.com/e0/68/n11JQjuk_o.png'],
     ['Washington', 'https://images2.imgbox.com/c8/87/GV0jFWwz_o.png'],
     ['Washington State', 'https://images2.imgbox.com/b4/0a/N7tI7RlE_o.png'],
-    ['West Virginia', 'https://images2.imgbox.com/d4/9f/p9cnFvRr_o.png'],
+    ['West Virginia', 'https://a.espncdn.com/i/teamlogos/ncaa/500/277.png'],
     ['Western Kentucky', 'https://images2.imgbox.com/6a/7c/242rIOW2_o.png'],
     ['Western Michigan', 'https://images2.imgbox.com/b3/cc/X21bh3LR_o.png'],
     ['Wisconsin', 'https://images2.imgbox.com/6e/95/jlC5rgpV_o.png'],
@@ -1516,10 +1516,10 @@
     if (!team) return null;
 
     const candidates = [
-      team.abbrev,
+      getTeamName(team),
       team.region,
       team.name,
-      getTeamName(team),
+      team.abbrev,
     ];
 
     for (const candidate of candidates) {

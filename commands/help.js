@@ -12,7 +12,7 @@ const HELP_CATEGORIES = {
       '`/iam coach:<your name>` — Link yourself to your coach so most commands can auto-fill your team.',
       '`/iam` — Show who you are currently linked to.',
       '`/iam clear:true` — Remove your saved coach link.',
-      '`/recordupdate year:<yr> wins:<n> losses:<n>` — Fix your record for one year if you changed jobs midseason.',
+      '`/recordupdate year:<yr> wins:<n> losses:<n> team:<team>` — Fix your record/team for one year if you changed jobs midseason.',
       '`/recordupdate` — Show your saved record fixes.',
       '`/recordupdate year:<yr> clear:true` — Remove one fix, or use just `clear:true` to remove them all.',
     ],

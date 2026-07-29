@@ -13,7 +13,7 @@
 //
 //  Usage:
 //    /recordupdate                          – show your overrides
-//    /recordupdate year:2058 wins:5 losses:3
+//    /recordupdate year:2058 wins:5 losses:3 team:West Virginia
 //                                            – set/replace override
 //    /recordupdate year:2058 clear:true     – remove that year
 //    /recordupdate clear:true               – remove all overrides
@@ -21,6 +21,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getUserCoachName } = require('../utils/userMap');
+const { getLatestLeagueData, findTeamByName, getTeamName } = require('../utils/data');
 const {
   getOverridesForCoach,
   setCoachOverride,
@@ -38,7 +39,10 @@ function fmtRecord(w, l) {
 function buildOverridesEmbed(coachName, overrides) {
   const lines = [...overrides.entries()]
     .sort((a, b) => Number(a[0]) - Number(b[0]))
-    .map(([year, rec]) => `**${year}:** ${fmtRecord(rec.wins, rec.losses)}`);
+    .map(([year, rec]) => {
+      const team = rec.team ? ` — ${rec.team}` : '';
+      return `**${year}:** ${fmtRecord(rec.wins, rec.losses)}${team}`;
+    });
 
   return new EmbedBuilder()
     .setTitle(`📝 Record Overrides — ${coachName}`)
@@ -46,7 +50,7 @@ function buildOverridesEmbed(coachName, overrides) {
     .setDescription(
       lines.length
         ? lines.join('\n')
-        : '_No record overrides set._\n\nUse `/recordupdate year:<year> wins:<n> losses:<n>` to add one.'
+        : '_No record overrides set._\n\nUse `/recordupdate year:<year> wins:<n> losses:<n> team:<team>` to add one.'
     )
     .setFooter({
       text: 'Overrides hard-overwrite the matching year in /coachstats and /coachleaderboard.',
@@ -81,6 +85,12 @@ module.exports = {
         .setMinValue(0)
         .setMaxValue(MAX_GAMES_IN_YEAR)
     )
+    .addStringOption((opt) =>
+      opt
+        .setName('team')
+        .setDescription('Team for this override, e.g. West Virginia or WVU')
+        .setRequired(false)
+    )
     .addBooleanOption((opt) =>
       opt
         .setName('clear')
@@ -103,6 +113,7 @@ module.exports = {
     const year = interaction.options.getInteger('year');
     const wins = interaction.options.getInteger('wins');
     const losses = interaction.options.getInteger('losses');
+    const teamArg = interaction.options.getString('team');
     const clear = interaction.options.getBoolean('clear') || false;
 
     // Mode: clear
@@ -140,19 +151,29 @@ module.exports = {
     if (wins === null || wins === undefined || losses === null || losses === undefined) {
       return interaction.editReply(
         '❌ To set an override you must provide both `wins:` and `losses:`.\n' +
-          'Example: `/recordupdate year:2058 wins:5 losses:3`'
+        'Example: `/recordupdate year:2058 wins:5 losses:3 team:West Virginia`'
       );
     }
 
     // 0-0 is allowed (e.g. you joined with no games remaining or your
     // half-season hasn't started yet).
+    let overrideTeam = null;
+    if (teamArg) {
+      const leagueData = getLatestLeagueData();
+      const matchedTeam = findTeamByName(leagueData, teamArg);
+      if (!matchedTeam) {
+        return interaction.editReply(`❌ Could not find a team matching **${teamArg}**.`);
+      }
+      overrideTeam = getTeamName(matchedTeam);
+    }
 
     const ok = setCoachOverride(
       coachName,
       year,
       wins,
       losses,
-      interaction.user.id
+      interaction.user.id,
+      overrideTeam
     );
     if (!ok) {
       return interaction.editReply(
@@ -165,7 +186,7 @@ module.exports = {
       .setTitle(`✅ Record override saved — ${coachName}`)
       .setColor(0x2ecc71)
       .setDescription(
-        `**${year}:** ${recStr}\n\n` +
+        `**${year}:** ${recStr}${overrideTeam ? ` — **${overrideTeam}**` : ''}\n\n` +
           'This will hard-overwrite your stats for that year in `/coachstats` ' +
           'and adjust your career totals in `/coachleaderboard`. ' +
           'Run `/recordupdate` (no args) any time to see all your overrides, ' +

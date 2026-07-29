@@ -1,7 +1,7 @@
 // ============================================================
 //  utils/coachOverrides.js
 //
-//  Per-coach, per-year W/L overrides. A coach who only coached
+//  Per-coach, per-year W/L/team overrides. A coach who only coached
 //  part of a season (mid-season hire, mid-season departure, etc.)
 //  can use /recordupdate to set the W-L they actually own for a
 //  given year. Those overrides hard-overwrite the corresponding
@@ -13,6 +13,7 @@
 //        "2058": {
 //          "wins": 5,
 //          "losses": 3,
+//          "team": "West Virginia",
 //          "setBy": "<discord user id>",
 //          "setAt": "<ISO timestamp>"
 //        }
@@ -65,7 +66,7 @@ function findStoreKey(store, coachName) {
   return null;
 }
 
-// Return Map<yearString, { wins, losses, setBy, setAt }> for a coach
+// Return Map<yearString, { wins, losses, team, setBy, setAt }> for a coach
 // (empty Map if none).
 function getOverridesForCoach(coachName) {
   const out = new Map();
@@ -79,6 +80,7 @@ function getOverridesForCoach(coachName) {
     out.set(String(year), {
       wins: Number(rec.wins) || 0,
       losses: Number(rec.losses) || 0,
+      team: rec.team ? String(rec.team).trim() : null,
       setBy: rec.setBy || null,
       setAt: rec.setAt || null,
     });
@@ -86,11 +88,12 @@ function getOverridesForCoach(coachName) {
   return out;
 }
 
-function setCoachOverride(coachName, year, wins, losses, userId) {
+function setCoachOverride(coachName, year, wins, losses, userId, team = null) {
   if (!coachName || !year) return false;
   const yearStr = String(year);
   const w = Math.max(0, Math.floor(Number(wins) || 0));
   const l = Math.max(0, Math.floor(Number(losses) || 0));
+  const cleanTeam = team ? String(team).trim() : null;
 
   const store = loadStore();
   const existingKey = findStoreKey(store, coachName);
@@ -100,6 +103,7 @@ function setCoachOverride(coachName, year, wins, losses, userId) {
   store[key][yearStr] = {
     wins: w,
     losses: l,
+    team: cleanTeam || null,
     setBy: userId ? String(userId) : null,
     setAt: new Date().toISOString(),
   };
@@ -151,8 +155,8 @@ function formatRecord(w, l) {
 //   • If history has an existing record for that year, subtract its W/L from
 //     the totals before adding the override.
 //   • If history has no record for that year, just add the override (treated
-//     as a brand-new partial-season entry; team comes from existing history
-//     entry if any, otherwise null).
+//     as a brand-new partial-season entry; team comes from the override,
+//     existing history entry if any, otherwise null).
 //   • The history entry is replaced/inserted with the override record.
 //
 // Returns a new resume-shaped object (does not mutate the input).
@@ -185,7 +189,7 @@ function applyOverridesToResume(resume, coachName) {
     historyByYear.set(year, {
       year,
       record: newRecordStr,
-      team: existing?.team || null,
+      team: ov.team || existing?.team || null,
       overridden: true,
     });
   }
