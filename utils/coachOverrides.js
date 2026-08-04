@@ -34,6 +34,37 @@ const DATA_DIR =
 
 const STORE_PATH = path.join(DATA_DIR, 'coach_overrides.json');
 
+function levenshtein(a, b) {
+  const s = String(a || '');
+  const t = String(b || '');
+  const dp = Array.from({ length: s.length + 1 }, () => new Array(t.length + 1).fill(0));
+
+  for (let i = 0; i <= s.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= t.length; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= s.length; i++) {
+    for (let j = 1; j <= t.length; j++) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return dp[s.length][t.length];
+}
+
+function coachKeysLikelyMatch(a, b) {
+  const an = normalize(a);
+  const bn = normalize(b);
+  if (!an || !bn) return false;
+  if (an === bn) return true;
+  if (an.length >= 4 && bn.length >= 4 && (an.includes(bn) || bn.includes(an))) return true;
+  return Math.max(an.length, bn.length) >= 8 && levenshtein(an, bn) <= 2;
+}
+
 function loadStore() {
   try {
     const raw = fs.readFileSync(STORE_PATH, 'utf8');
@@ -59,9 +90,8 @@ function saveStore(store) {
 // Returns the existing key if any, otherwise null.
 function findStoreKey(store, coachName) {
   if (!coachName) return null;
-  const target = normalize(coachName);
   for (const k of Object.keys(store)) {
-    if (normalize(k) === target) return k;
+    if (coachKeysLikelyMatch(k, coachName)) return k;
   }
   return null;
 }
@@ -160,7 +190,7 @@ function formatRecord(w, l) {
 //   • The history entry is replaced/inserted with the override record.
 //
 // Returns a new resume-shaped object (does not mutate the input).
-function applyOverridesToResume(resume, coachName) {
+function applyOverridesToResume(resume, coachName, defaultTeam = null) {
   const overrides = getOverridesForCoach(coachName);
   if (overrides.size === 0) return resume;
 
@@ -196,7 +226,7 @@ function applyOverridesToResume(resume, coachName) {
     historyByYear.set(year, {
       year,
       record: newRecordStr,
-      team: ov.team || existing?.team || null,
+      team: ov.team || existing?.team || defaultTeam || null,
       overridden: true,
     });
   }

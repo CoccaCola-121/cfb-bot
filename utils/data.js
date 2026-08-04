@@ -172,7 +172,6 @@
     ['Wake Forest', 'https://images2.imgbox.com/e0/68/n11JQjuk_o.png'],
     ['Washington', 'https://images2.imgbox.com/c8/87/GV0jFWwz_o.png'],
     ['Washington State', 'https://images2.imgbox.com/b4/0a/N7tI7RlE_o.png'],
-    ['West Virginia', 'https://a.espncdn.com/i/teamlogos/ncaa/500/277.png'],
     ['Western Kentucky', 'https://images2.imgbox.com/6a/7c/242rIOW2_o.png'],
     ['Western Michigan', 'https://images2.imgbox.com/b3/cc/X21bh3LR_o.png'],
     ['Wisconsin', 'https://images2.imgbox.com/6e/95/jlC5rgpV_o.png'],
@@ -1517,14 +1516,31 @@
 
     const candidates = [
       team.imgURL,
+      team.imgURLSmall,
       team.imgUrl,
+      team.imgUrlSmall,
       team.logoURL,
       team.logoUrl,
       team.imageURL,
       team.imageUrl,
     ];
 
-    for (const raw of candidates) {
+    const seasonLogos = Array.isArray(team.seasons)
+      ? [...team.seasons]
+          .sort((a, b) => Number(b?.season) - Number(a?.season))
+          .flatMap((season) => [
+            season?.imgURL,
+            season?.imgURLSmall,
+            season?.imgUrl,
+            season?.imgUrlSmall,
+            season?.logoURL,
+            season?.logoUrl,
+            season?.imageURL,
+            season?.imageUrl,
+          ])
+      : [];
+
+    for (const raw of [...candidates, ...seasonLogos]) {
       const url = String(raw || '').trim();
       if (!url) continue;
       if (/^https?:\/\//i.test(url)) return url;

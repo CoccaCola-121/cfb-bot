@@ -8,6 +8,21 @@ const CROOT_RANKINGS_SHEET_ID =
 const CROOT_RANKINGS_GID =
   process.env.NZCFL_CROOT_RANKINGS_GID ||
   '1062826171';
+const CROOT_RECRUITS_GID =
+  process.env.NZCFL_CROOT_RECRUITS_GID ||
+  '0';
+
+const CROOT_VALUE_COLUMNS = [
+  { key: 'location', label: 'Location' },
+  { key: 'winning', label: 'Winning' },
+  { key: 'playing time', label: 'Playing Time' },
+  { key: 'coach', label: 'Coach' },
+  { key: 'propotential', label: 'Pro Potential' },
+  { key: 'prestige', label: 'Prestige' },
+  { key: 'education', label: 'Education' },
+  { key: 'campus', label: 'Campus' },
+  { key: 'tradition', label: 'Tradition' },
+];
 
 function normalizePos(pos) {
   const p = String(pos || '').toUpperCase().trim().replace(/[\s\d/\\.,-]+$/, '');
@@ -95,6 +110,66 @@ async function loadCrootRankings() {
   return { recruits, schoolColumns };
 }
 
+async function loadCrootValues() {
+  const rows = await fetchSheetCsv(CROOT_RANKINGS_SHEET_ID, CROOT_RECRUITS_GID, true);
+  if (!Array.isArray(rows) || !rows.length) {
+    return [];
+  }
+
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 8); i += 1) {
+    const cleaned = (rows[i] || []).map(cleanHeaderKey);
+    if (cleaned.includes('name') && cleaned.some((cell) => cell === 'winning')) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    return [];
+  }
+
+  const header = rows[headerIdx];
+  const colMap = new Map();
+  header.forEach((cell, index) => colMap.set(cleanHeaderKey(cell), index));
+
+  const nameCol = colMap.get('name');
+  if (nameCol == null) {
+    return [];
+  }
+
+  return rows
+    .slice(headerIdx + 1)
+    .map((row) => {
+      const name = String(row[nameCol] || '').trim();
+      if (!name) return null;
+
+      const values = CROOT_VALUE_COLUMNS
+        .map(({ key, label }) => ({
+          label,
+          score: loadNumeric(row[colMap.get(key)]),
+        }))
+        .filter((entry) => entry.score !== null)
+        .sort((a, b) => b.score - a.score);
+
+      return { name, values };
+    })
+    .filter(Boolean);
+}
+
+function findCrootValuesByName(crootValues, query) {
+  const needle = normalize(query);
+  if (!needle) return null;
+
+  const exact = crootValues.find((entry) => normalize(entry.name) === needle);
+  if (exact) return exact;
+
+  const startsWith = crootValues.find((entry) => normalize(entry.name).startsWith(needle));
+  if (startsWith) return startsWith;
+
+  return crootValues.find((entry) => normalize(entry.name).includes(needle)) || null;
+}
+
 function findRecruitByName(recruits, query) {
   const needle = normalize(query);
   if (!needle) return null;
@@ -143,9 +218,12 @@ function formatCommitStatus(committed) {
 module.exports = {
   CROOT_RANKINGS_GID,
   CROOT_RANKINGS_SHEET_ID,
+  CROOT_RECRUITS_GID,
   normalizePos,
   loadCrootRankings,
+  loadCrootValues,
   findRecruitByName,
+  findCrootValuesByName,
   resolveRecruitingTeam,
   getFitForTeam,
   formatCommitStatus,

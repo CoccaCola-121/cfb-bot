@@ -378,7 +378,7 @@ module.exports = {
     const coaches = csvCoaches.map(c => {
       const rawResume = findResumeForCoach(resumeMap, c.coach) || null;
       const patched   = patchCurrentSeason(c, rawResume);
-      const finalResume = applyOverridesToResume(patched, c.coach);
+      const finalResume = applyOverridesToResume(patched, c.coach, c.team);
       const derivedYears = finalResume?.history?.length || 0;
       const years = derivedYears > 0 ? derivedYears : c.years;
       return { ...c, years, resume: finalResume };

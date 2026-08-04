@@ -2,7 +2,9 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData } = require('../utils/data');
 const {
   loadCrootRankings,
+  loadCrootValues,
   findRecruitByName,
+  findCrootValuesByName,
   formatCommitStatus,
 } = require('../utils/crootRankings');
 
@@ -27,8 +29,12 @@ module.exports = {
     const player = interaction.options.getString('player', true);
 
     let recruits;
+    let crootValues;
     try {
-      ({ recruits } = await loadCrootRankings());
+      [{ recruits }, crootValues] = await Promise.all([
+        loadCrootRankings(),
+        loadCrootValues(),
+      ]);
     } catch (err) {
       return interaction.editReply(`❌ Failed to load recruit rankings: ${err.message}`);
     }
@@ -45,6 +51,10 @@ module.exports = {
     const topFits = recruit.fits
       .slice(0, 8)
       .map((fit) => `**#${fit.fitRank}** ${fit.school}`);
+    const valueProfile = findCrootValuesByName(crootValues, recruit.name);
+    const topValues = (valueProfile?.values || [])
+      .slice(0, 3)
+      .map((value) => value.label);
 
     const embed = new EmbedBuilder()
       .setColor(0x2b4b8c)
@@ -56,10 +66,16 @@ module.exports = {
           `Committed: **${formatCommitStatus(recruit.committed)}**`,
         ].join(' • ')
       )
-      .addFields({
-        name: 'Best Fits',
-        value: topFits.length ? topFits.join('\n') : '—',
-      })
+      .addFields(
+        {
+          name: 'Top Values',
+          value: topValues.length ? topValues.join('\n') : '—',
+        },
+        {
+          name: 'Best Fits',
+          value: topFits.length ? topFits.join('\n') : '—',
+        }
+      )
       .setFooter({ text: 'Rankings tab' })
       .setTimestamp();
 
