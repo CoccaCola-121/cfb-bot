@@ -48,7 +48,7 @@ function relevantRatingKeys(pos) {
   if (['CB', 'S', 'FS', 'SS'].includes(p)) return ['pcv'];
   if (p === 'K') return ['kpw', 'kac'];
   if (p === 'P') return ['ppw', 'pac'];
-  return ['spd', 'endu', 'stre'];
+  return ['ovr', 'pot'];
 }
 
 function ratingValue(rating, key) {
@@ -73,7 +73,7 @@ function signDelta(delta) {
   return String(delta);
 }
 
-function formatTopMovers(prev, curr, keys, limit = 3) {
+function formatTopMovers(prev, curr, keys, limit = 2) {
   return keys
     .map((key) => {
       const before = ratingValue(prev, key);
@@ -116,7 +116,7 @@ function buildProgressionRows(player, currentSeason) {
     return [
       `**${season ?? '?'}**`,
       `${rating.pos || player.pos || '?'} ${ovr ?? '?'}/${pot ?? '?'}${deltaText}`,
-      movers || (prev ? 'No relevant rating movement' : 'Baseline'),
+      movers || '',
     ];
   });
 }
@@ -213,7 +213,9 @@ module.exports = {
     const team = player.tid >= 0 ? getTeamByTid(leagueData, player.tid) : null;
     const fullName = `${player.firstName || ''} ${player.lastName || ''}`.trim();
     const rows = buildProgressionRows(player, currentSeason);
-    const lines = rows.map(([season, overall, movers]) => `${season}: ${overall}\n${movers}`);
+    const lines = rows.map(([season, overall, movers]) =>
+      movers ? `${season}: ${overall}\n${movers}` : `${season}: ${overall}`
+    );
 
     const embed = new EmbedBuilder()
       .setTitle(`📈 ${fullName} Progression`)

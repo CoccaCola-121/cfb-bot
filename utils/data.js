@@ -224,6 +224,14 @@
     [...TEAM_LOGO_OVERRIDES.entries()].map(([key, value]) => [normalizeLogoKey(key), value])
   );
 
+  const FORCE_TEAM_LOGO_OVERRIDES = new Map([
+    ['West Virginia', 'https://upload.wikimedia.org/wikipedia/commons/3/3c/West_virginia_mountaineers-cap-0.png'],
+  ]);
+
+  const NORMALIZED_FORCE_TEAM_LOGO_OVERRIDES = new Map(
+    [...FORCE_TEAM_LOGO_OVERRIDES.entries()].map(([key, value]) => [normalizeLogoKey(key), value])
+  );
+
   const NORMALIZED_CONFERENCE_LOGO_OVERRIDES = new Map(
     [...CONFERENCE_LOGO_OVERRIDES.entries()].map(([key, value]) => [normalizeLogoKey(key), value])
   );
@@ -1513,6 +1521,18 @@
 
   function getTeamLogoUrl(team) {
     if (!team) return null;
+
+    const overrideCandidates = [
+      team.abbrev,
+      team.region,
+      team.name,
+      getTeamName(team),
+    ];
+
+    for (const candidate of overrideCandidates) {
+      const forced = NORMALIZED_FORCE_TEAM_LOGO_OVERRIDES.get(normalizeLogoKey(candidate));
+      if (forced) return forced;
+    }
 
     const candidates = [
       team.imgURL,

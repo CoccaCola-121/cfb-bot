@@ -69,7 +69,7 @@ module.exports = {
       .addFields(
         {
           name: 'Top Values',
-          value: topValues.length ? topValues.join('\n') : '—',
+          value: topValues.length ? topValues.join(' • ') : '—',
         },
         {
           name: 'Best Fits',
