@@ -60,6 +60,7 @@ const HELP_CATEGORIES = {
       '`/recruitingclass <team>` — See a team’s incoming class.',
       '`/toprecruits [position]` — See the top recruits.',
       '`/crootpage <player>` — Open one recruit’s fit page.',
+      '`/crootsearch <value1> [value2] [value3]` — Find available croots by top values.',
       '`/proghistory <player> [team]` — Show a player’s year-by-year rating growth.',
       '`/compatiblecroots [team] [position]` — Best current recruit fits for a team.',
     ],

@@ -219,6 +219,7 @@ module.exports = {
   CROOT_RANKINGS_GID,
   CROOT_RANKINGS_SHEET_ID,
   CROOT_RECRUITS_GID,
+  CROOT_VALUE_COLUMNS,
   normalizePos,
   loadCrootRankings,
   loadCrootValues,
