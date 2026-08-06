@@ -84,13 +84,22 @@ function getInjurySettingStage(leagueData) {
 
 function collectPossibleInjurySettings(source, path = [], out = []) {
   if (!source || typeof source !== 'object') return out;
-  if (path.length > 5) return out;
+  if (path.length > 8) return out;
 
   for (const [key, value] of Object.entries(source)) {
     const nextPath = [...path, key];
     const pathKey = normalizeSettingKey(nextPath.join(' '));
+    const keyLooksLikePlayThrough =
+      pathKey.includes('playinjured') ||
+      pathKey.includes('playinginjured') ||
+      (pathKey.includes('injur') && pathKey.includes('play')) ||
+      (pathKey.includes('injur') && pathKey.includes('through')) ||
+      (
+        pathKey.includes('injur') &&
+        ['max', 'limit', 'threshold', 'week', 'game'].some((word) => pathKey.includes(word))
+      );
 
-    if (pathKey.includes('play') && pathKey.includes('injur')) {
+    if (keyLooksLikePlayThrough) {
       out.push({ path: nextPath, value });
     }
 
@@ -106,9 +115,12 @@ function scoreInjurySettingCandidate(candidate, stage) {
   const key = normalizeSettingKey(candidate.path.join(' '));
   let score = 0;
 
+  if (key.includes('playinjured') || key.includes('playinginjured')) score += 8;
   if (key.includes('play')) score += 2;
   if (key.includes('through')) score += 3;
   if (key.includes('injur')) score += 4;
+  if (key.includes('threshold') || key.includes('limit') || key.includes('max')) score += 2;
+  if (key.includes('week') || key.includes('game')) score += 1;
 
   if (stage === 'playoffs') {
     if (key.includes('playoff') || key.includes('postseason')) score += 6;
@@ -143,6 +155,41 @@ function findCurrentInjurySetting(team, stage) {
   return candidates[0] || null;
 }
 
+function selectStageValue(value, stage) {
+  if (!value || typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    const numericValues = value
+      .map((entry) => Number(entry))
+      .filter((entry) => Number.isFinite(entry));
+    if (numericValues.length >= 2) return stage === 'playoffs' ? numericValues[1] : numericValues[0];
+    if (numericValues.length === 1) return numericValues[0];
+    return value;
+  }
+
+  const entries = Object.entries(value);
+  const scored = entries
+    .map(([key, entryValue]) => {
+      const normalized = normalizeSettingKey(key);
+      let score = 0;
+      if (stage === 'playoffs') {
+        if (normalized.includes('playoff') || normalized.includes('postseason')) score += 5;
+        if (normalized.includes('regular') || normalized.includes('regseason')) score -= 4;
+      } else {
+        if (normalized.includes('regular') || normalized.includes('regseason')) score += 5;
+        if (normalized.includes('playoff') || normalized.includes('postseason')) score -= 4;
+      }
+      if (['value', 'weeks', 'games', 'threshold', 'limit', 'max'].some((word) => normalized.includes(word))) {
+        score += 1;
+      }
+      return { entryValue, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length && scored[0].score > 0) return scored[0].entryValue;
+  return value;
+}
+
 function parsePlayThroughWeeks(value) {
   if (typeof value === 'boolean') return value ? 10 : 0;
 
@@ -160,6 +207,12 @@ function parsePlayThroughWeeks(value) {
 
     const numeric = Number(raw);
     if (Number.isFinite(numeric)) return Math.max(0, Math.min(10, Math.round(numeric)));
+
+    const numericMatch = raw.match(/\d+(?:\.\d+)?/);
+    if (numericMatch) {
+      const parsed = Number(numericMatch[0]);
+      if (Number.isFinite(parsed)) return Math.max(0, Math.min(10, Math.round(parsed)));
+    }
   }
 
   return null;
@@ -176,7 +229,13 @@ function buildPlayThroughInfo(team, leagueData) {
   const stage = getInjurySettingStage(leagueData);
   const setting = findCurrentInjurySetting(team, stage);
   const stageLabel = stage === 'playoffs' ? 'Playoffs' : 'Regular Season';
-  const weeks = setting ? parsePlayThroughWeeks(setting.value) : null;
+  let rawValue = setting ? setting.value : null;
+  for (let i = 0; i < 4; i += 1) {
+    const selected = selectStageValue(rawValue, stage);
+    if (selected === rawValue) break;
+    rawValue = selected;
+  }
+  const weeks = setting ? parsePlayThroughWeeks(rawValue) : null;
 
   if (!Number.isFinite(weeks)) {
     return {
