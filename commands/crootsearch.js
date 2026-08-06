@@ -126,7 +126,7 @@ module.exports = {
         name: 'Values',
         value: valueLine,
       })
-      .setFooter({ text: 'Available croots only • Sorted by class rank' })
+      .setFooter({ text: 'Croot Rankings + Recruits tabs' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

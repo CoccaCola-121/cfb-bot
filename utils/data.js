@@ -225,7 +225,7 @@
   );
 
   const FORCE_TEAM_LOGO_OVERRIDES = new Map([
-    ['West Virginia', 'https://upload.wikimedia.org/wikipedia/commons/3/3c/West_virginia_mountaineers-cap-0.png'],
+    ['West Virginia', 'https://upload.wikimedia.org/wikipedia/commons/e/e8/West_Virginia_Mountaineers_logo.svg'],
   ]);
 
   const NORMALIZED_FORCE_TEAM_LOGO_OVERRIDES = new Map(

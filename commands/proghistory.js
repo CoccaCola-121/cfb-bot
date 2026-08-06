@@ -7,7 +7,6 @@ const {
   getTeamByTid,
   getTeamColor,
   getTeamLogoUrl,
-  getTeamName,
   getLatestLeagueData,
 } = require('../utils/data');
 
@@ -221,11 +220,7 @@ module.exports = {
       .setTitle(`📈 ${fullName} Progression`)
       .setColor(getTeamColor(team, 0x2b4b8c))
       .setDescription(lines.join('\n\n').slice(0, 4000))
-      .setFooter({
-        text: team
-          ? `${getTeamName(team)} (${team.abbrev}) • Top movers use current-position relevant ratings`
-          : 'Top movers use current-position relevant ratings',
-      })
+      .setFooter({ text: 'Football GM export' })
       .setTimestamp();
 
     const logo = team ? getTeamLogoUrl(team) : null;

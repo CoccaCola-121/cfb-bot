@@ -73,6 +73,124 @@ function formatInjuryLength(gamesRemaining) {
   return `${games} games`;
 }
 
+function normalizeSettingKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getInjurySettingStage(leagueData) {
+  const phase = Number(leagueData?.gameAttributes?.phase);
+  return Number.isFinite(phase) && phase >= 3 ? 'playoffs' : 'regular';
+}
+
+function collectPossibleInjurySettings(source, path = [], out = []) {
+  if (!source || typeof source !== 'object') return out;
+  if (path.length > 5) return out;
+
+  for (const [key, value] of Object.entries(source)) {
+    const nextPath = [...path, key];
+    const pathKey = normalizeSettingKey(nextPath.join(' '));
+
+    if (pathKey.includes('play') && pathKey.includes('injur')) {
+      out.push({ path: nextPath, value });
+    }
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      collectPossibleInjurySettings(value, nextPath, out);
+    }
+  }
+
+  return out;
+}
+
+function scoreInjurySettingCandidate(candidate, stage) {
+  const key = normalizeSettingKey(candidate.path.join(' '));
+  let score = 0;
+
+  if (key.includes('play')) score += 2;
+  if (key.includes('through')) score += 3;
+  if (key.includes('injur')) score += 4;
+
+  if (stage === 'playoffs') {
+    if (key.includes('playoff') || key.includes('postseason')) score += 6;
+    if (key.includes('regular') || key.includes('regseason')) score -= 5;
+  } else {
+    if (key.includes('regular') || key.includes('regseason')) score += 6;
+    if (key.includes('playoff') || key.includes('postseason')) score -= 5;
+  }
+
+  if (['boolean', 'number', 'string'].includes(typeof candidate.value)) score += 2;
+  if (Array.isArray(candidate.value)) score += 1;
+
+  return score;
+}
+
+function getLatestTeamSeasonObject(team) {
+  if (!Array.isArray(team?.seasons) || team.seasons.length === 0) return null;
+  return [...team.seasons]
+    .filter(Boolean)
+    .sort((a, b) => Number(b?.season ?? -Infinity) - Number(a?.season ?? -Infinity))[0] || null;
+}
+
+function findCurrentInjurySetting(team, stage) {
+  const latestSeason = getLatestTeamSeasonObject(team);
+  const candidates = [
+    ...collectPossibleInjurySettings(team),
+    ...collectPossibleInjurySettings(latestSeason, ['latestSeason']),
+  ]
+    .filter((candidate) => candidate.value !== null && candidate.value !== undefined)
+    .sort((a, b) => scoreInjurySettingCandidate(b, stage) - scoreInjurySettingCandidate(a, stage));
+
+  return candidates[0] || null;
+}
+
+function parsePlayThroughWeeks(value) {
+  if (typeof value === 'boolean') return value ? 10 : 0;
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return Math.max(0, Math.min(10, Math.round(value)));
+  }
+
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return null;
+    const normalized = normalizeSettingKey(raw);
+    if (['false', 'off', 'none', 'no'].includes(normalized)) return 0;
+    if (['true', 'on', 'yes'].includes(normalized)) return 10;
+
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) return Math.max(0, Math.min(10, Math.round(numeric)));
+  }
+
+  return null;
+}
+
+function formatPlayThroughThreshold(weeks) {
+  if (!Number.isFinite(weeks)) return 'Unknown';
+  if (weeks <= 0) return '0 weeks';
+  if (weeks === 1) return '1 week';
+  return `${weeks} weeks`;
+}
+
+function buildPlayThroughInfo(team, leagueData) {
+  const stage = getInjurySettingStage(leagueData);
+  const setting = findCurrentInjurySetting(team, stage);
+  const stageLabel = stage === 'playoffs' ? 'Playoffs' : 'Regular Season';
+  const weeks = setting ? parsePlayThroughWeeks(setting.value) : null;
+
+  if (!Number.isFinite(weeks)) {
+    return {
+      banner: `🧠 Play Through Injuries (${stageLabel}): **Unknown**`,
+      weeks: null,
+    };
+  }
+
+  return {
+    banner: `🧠 Play Through Injuries (${stageLabel}): **${formatPlayThroughThreshold(weeks)}**`,
+    weeks,
+  };
+}
+
 function getLatestRatings(player) {
   const ratings = Array.isArray(player?.ratings) ? player.ratings : [];
   if (ratings.length === 0) return null;
@@ -397,11 +515,17 @@ module.exports = {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    if (!injuredPlayers.length && !redshirts.length) {
-      return interaction.editReply(`No current injuries or redshirts for **${getTeamName(team)} (${team.abbrev})**.`);
+    const playThroughInfo = buildPlayThroughInfo(team, leagueData);
+    const playingThrough = Number.isFinite(playThroughInfo.weeks) && playThroughInfo.weeks > 0
+      ? injuredPlayers.filter((player) => player.gamesRemaining <= playThroughInfo.weeks)
+      : [];
+    const lines = [playThroughInfo.banner];
+
+    if (playingThrough.length) {
+      lines.push(`Playing through: **${playingThrough.map((player) => player.name).join(', ')}**`);
     }
 
-    const lines = [];
+    lines.push('');
 
     if (injuredPlayers.length) {
       for (const p of injuredPlayers) {
@@ -430,8 +554,8 @@ module.exports = {
       .setDescription(lines.join('\n'))
       .setFooter({
         text: explicitDepthFound
-          ? 'Football GM export • Starter slots from depth chart where available'
-          : 'Football GM export • Starter slots derived when chart unavailable',
+          ? 'Football GM export • Play-through threshold from team settings • Starter slots from depth chart where available'
+          : 'Football GM export • Play-through threshold from team settings • Starter slots derived when chart unavailable',
       })
       .setTimestamp();
 

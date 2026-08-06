@@ -76,7 +76,7 @@ module.exports = {
           value: topFits.length ? topFits.join('\n') : '—',
         }
       )
-      .setFooter({ text: 'Rankings tab' })
+      .setFooter({ text: 'Croot Rankings + Recruits tabs' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });
