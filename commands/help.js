@@ -63,6 +63,7 @@ const HELP_CATEGORIES = {
       '`/crootsearch <value1> [value2] [value3]` — Find available croots by top values.',
       '`/proghistory <player> [team]` — Show a player’s year-by-year rating growth.',
       '`/compatiblecroots [team] [position]` — Best current recruit fits for a team.',
+      '`/compatibleteams <player> <teams>` — Best team fits for one recruit from a pasted team list.',
     ],
   },
   rankings: {
