@@ -40,10 +40,18 @@ function cleanHeaderKey(value) {
   return String(value || '').toLowerCase().trim().replace(/[.:?!]+$/, '').trim();
 }
 
+const NON_SCHOOL_RANKING_HEADERS = new Set([
+  'winning rank',
+]);
+
 function getSchoolColumns(headerRow, committedCol) {
   return headerRow
     .map((cell, index) => ({ school: String(cell || '').trim(), index }))
-    .filter(({ school, index }) => index > committedCol && school);
+    .filter(({ school, index }) =>
+      index > committedCol &&
+      school &&
+      !NON_SCHOOL_RANKING_HEADERS.has(cleanHeaderKey(school))
+    );
 }
 
 function loadNumeric(value) {
