@@ -32,6 +32,7 @@ const {
   GatewayIntentBits,
   Collection,
   Options,
+  Partials,
 } = require('discord.js');
 const http = require('http');
 const fs   = require('fs');
@@ -63,7 +64,12 @@ if (process.env.PORT) {
 // caches we never read from to keep resident memory low on small
 // hosts like Railway.
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,
+],
+partials: [Partials.Channel, Partials.Message],
 
   // Keep only the bot itself in user/member caches; disable everything
   // else that discord.js otherwise grows unbounded.
@@ -194,6 +200,51 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       await interaction.reply(msg);
     }
+  }
+});
+
+async function pushCommitMessageToRecruitHQ(message) {
+  if (!process.env.RECRUITHQ_SITE_URL || !process.env.RECRUITHQ_COMMIT_SECRET) return;
+  if (String(message.channelId) !== String(process.env.DISCORD_COMMIT_CHANNEL_ID)) return;
+
+  try {
+    const res = await fetch(`${process.env.RECRUITHQ_SITE_URL.replace(/\/+$/, '')}/api/commits/push`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-commit-sync-secret': process.env.RECRUITHQ_COMMIT_SECRET,
+      },
+      body: JSON.stringify({
+        message: {
+          id: message.id,
+          content: message.content || '',
+          embeds: message.embeds?.map((embed) => embed.toJSON ? embed.toJSON() : embed) || [],
+          timestamp: message.createdAt?.toISOString(),
+          channel_id: message.channelId,
+          guild_id: message.guildId,
+        },
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    console.log('RecruitHQ commit push:', data);
+  } catch (error) {
+    console.error('RecruitHQ commit push failed:', error);
+  }
+}
+
+client.on('messageCreate', async (message) => {
+  if (message.author?.bot) return;
+  await pushCommitMessageToRecruitHQ(message);
+});
+
+client.on('messageUpdate', async (_oldMessage, newMessage) => {
+  try {
+    if (newMessage.partial) newMessage = await newMessage.fetch();
+    if (newMessage.author?.bot) return;
+    await pushCommitMessageToRecruitHQ(newMessage);
+  } catch (error) {
+    console.error('RecruitHQ commit edit push failed:', error);
   }
 });
 
