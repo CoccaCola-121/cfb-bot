@@ -5,7 +5,7 @@
   const fs = require('fs');
   const path = require('path');
   const zlib = require('zlib');
-  const { REG_SEASON_WEEKS } = require('./weekLabels');
+  const { REG_SEASON_WEEKS, getWeekLabel } = require('./weekLabels');
 
   const fetchFn = globalThis.fetch.bind(globalThis);
 
@@ -1199,7 +1199,7 @@
 
         return {
           week,
-          weekLabel: week !== null ? `Week ${week}` : null,
+          weekLabel: week !== null ? getWeekLabel(week) : null,
           opponentTid: oppTid,
           opponent: getTeamName(opponent),
           opponentAbbrev: opponent?.abbrev || '?',

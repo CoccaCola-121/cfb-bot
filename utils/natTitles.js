@@ -60,26 +60,51 @@ const NAT_TITLE_ENTRIES = [
   { year: '2061', aliases: ['speedshark', '@speedshark'] },
 ];
 
+function rawAliasKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function rawAliasVariants(value) {
+  const raw = rawAliasKey(value);
+  if (!raw) return [];
+  return raw.startsWith('@') ? [raw, raw.slice(1)] : [raw, `@${raw}`];
+}
+
+function matchesNatTitleAlias(coachName, aliases) {
+  const coachRawVariants = new Set(rawAliasVariants(coachName));
+
+  for (const alias of aliases || []) {
+    if (rawAliasVariants(alias).some((raw) => coachRawVariants.has(raw))) {
+      return true;
+    }
+
+    const an = normalize(alias);
+    const rk = normalize(coachName);
+    if (!an || !rk) continue;
+
+    if (
+      an === rk ||
+      (an.length >= 4 && rk.includes(an)) ||
+      (rk.length >= 4 && an.includes(rk))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Return the years a given coach won the national title (alias-matched).
 // Uses fuzzy substring matching once the alias is at least 4 chars long.
 function getNatTitleYears(coachName) {
-  const rk = normalize(coachName);
-  if (!rk) return [];
+  if (!rawAliasKey(coachName)) return [];
   return NAT_TITLE_ENTRIES
-    .filter((e) =>
-      e.aliases.some((a) => {
-        const an = normalize(a);
-        return (
-          an === rk ||
-          (an.length >= 4 && rk.includes(an)) ||
-          (rk.length >= 4 && an.includes(rk))
-        );
-      })
-    )
+    .filter((e) => matchesNatTitleAlias(coachName, e.aliases))
     .map((e) => e.year);
 }
 
 module.exports = {
   NAT_TITLE_ENTRIES,
+  matchesNatTitleAlias,
   getNatTitleYears,
 };

@@ -12,7 +12,7 @@ const {
   safeNumber,
 } = require('../utils/data');
 const { normalize } = require('../utils/sheets');
-const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
+const { NAT_TITLE_ENTRIES, matchesNatTitleAlias } = require('../utils/natTitles');
 
 const MAX_NAT_TITLES_DISPLAY = 15;
 const MAX_FIELDS = 25;
@@ -155,14 +155,7 @@ function buildNatChamps(leagueData, currentSeason, coachFilter = null) {
   let out = champs.sort((a, b) => b.year - a.year);
 
   if (coachFilter) {
-    const q = normalize(coachFilter);
-
-    out = out.filter((c) =>
-      c.aliases.some((a) => {
-        const an = normalize(a);
-        return an === q || (an.length >= 4 && q.includes(an)) || (q.length >= 4 && an.includes(q));
-      })
-    );
+    out = out.filter((c) => matchesNatTitleAlias(coachFilter, c.aliases));
   }
 
   return out;

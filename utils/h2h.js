@@ -187,7 +187,7 @@ function parseWeekCell(raw) {
   // AAC/MWC/Sun Belt/etc. Runs LAST among the playoff/title patterns so
   // National Championship has already been peeled off above.
   if (/(^|\W)ccg(\W|$)|conference\s*(title|champ)|title\s*game|championship/.test(lower)) {
-    return { week: 13, weekLabel: 'Conference Championships' };
+    return { week: 13, weekLabel: getWeekLabel(13) };
   }
 
   return { week: null, weekLabel: v };

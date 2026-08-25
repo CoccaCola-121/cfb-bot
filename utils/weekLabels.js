@@ -20,11 +20,12 @@ function getWeekLabel(week) {
   }
 
   const map = {
-    13: 'Conference Championships',
+    13: 'CCG',
     14: 'Bowl Week',
     15: 'Quarterfinals',
     16: 'Semifinals',
     17: 'National Championship',
+    18: 'National Championship',
   };
 
   return map[w] || `Postseason Wk ${w}`;

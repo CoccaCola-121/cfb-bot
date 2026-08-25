@@ -235,9 +235,10 @@ module.exports = {
 
     const lines = result.games.map((g) => {
       if (g.isFuture) {
+        const weekLabel = g.weekLabel || getWeekLabel(g.week);
         return g.matchup
-          ? `**Week ${g.week}** — ${g.matchup}`
-          : `**Week ${g.week}** — *TBD*`;
+          ? `**${weekLabel}** — ${g.matchup}`
+          : `**${weekLabel}** — *TBD*`;
       }
       const weekLabel = g.weekLabel || getWeekLabel(g.week);
       if (isPlaceholderScore(g.teamScore, g.oppScore)) {

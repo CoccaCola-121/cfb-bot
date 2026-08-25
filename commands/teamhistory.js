@@ -16,7 +16,7 @@ const {
 } = require('../utils/data');
 const { normalize, findMatchingTeam } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
-const { NAT_TITLE_ENTRIES } = require('../utils/natTitles');
+const { NAT_TITLE_ENTRIES, matchesNatTitleAlias } = require('../utils/natTitles');
 const { getUserTeam, loadCoachIndex } = require('../utils/userMap');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
 const { getOverridesForCoach } = require('../utils/coachOverrides');
@@ -236,13 +236,7 @@ function teamChampionshipYears(teamAliasesNorm, allRows) {
   for (const e of NAT_TITLE_ENTRIES) {
     const yearRows = allRows.filter((r) => r.year === e.year && r.team);
 
-    const winner = yearRows.find((r) =>
-      e.aliases.some((a) => {
-        const an = normalize(a);
-        const cn = normalize(r.coach);
-        return an === cn || (an.length >= 4 && cn.includes(an)) || (cn.length >= 4 && an.includes(cn));
-      })
-    );
+    const winner = yearRows.find((r) => matchesNatTitleAlias(r.coach, e.aliases));
 
     if (winner && teamAliasesNorm.has(normalize(winner.team))) {
       out.push({ year: e.year, coach: winner.coach });

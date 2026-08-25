@@ -23,6 +23,7 @@ const {
   safeNumber,
   formatRecord,
 } = require('../utils/data');
+const { getWeekLabel } = require('../utils/weekLabels');
 
 // Power-5 cids in this league: ACC=0, B1G=1, B12=2, P12=3, SEC=4
 const P5_CIDS = new Set([0, 1, 2, 3, 4]);
@@ -67,14 +68,7 @@ function scoreGame(homeRec, awayRec, homeCid, awayCid) {
 // Week labels: regular weeks show "Week N", postseason weeks get themed titles.
 function weekTitle(day) {
   const n = Number(day);
-  switch (n) {
-    case 13: return 'Conference Championship Week';
-    case 14: return 'Bowl Week';
-    case 15: return 'Playoff Quarterfinals';
-    case 16: return 'Playoff Semifinals';
-    case 18: return 'National Championship';
-    default: return `Week ${n}`;
-  }
+  return getWeekLabel(n);
 }
 
 module.exports = {
