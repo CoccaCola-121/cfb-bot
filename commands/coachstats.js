@@ -178,11 +178,14 @@ function parseResumeSheet(rows) {
     const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]
       .sort((a, b) => +a - +b);
 
-    const history = allYears.map(y => ({
-      year:   y,
-      record: recordByYear.get(y) || null,
-      team:   teamByYear.get(y)   || null,
-    }));
+    let lastKnownTeam = null;
+    const history = allYears.map(y => {
+      const explicitTeam = teamByYear.get(y) || null;
+      const record = recordByYear.get(y) || null;
+      const team = explicitTeam || (record ? lastKnownTeam : null);
+      if (explicitTeam) lastKnownTeam = explicitTeam;
+      return { year: y, record, team };
+    });
 
     map.set(normalize(coach), { record: total, wins, losses, pct: games > 0 ? wins / games : 0, history });
   }

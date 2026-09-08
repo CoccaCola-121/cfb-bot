@@ -91,12 +91,16 @@ function parseResumeRows(rows) {
       if (ov.team) teamByYear.set(year, ov.team);
     }
 
-    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])];
+    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]
+      .sort((a, b) => Number(a) - Number(b));
 
+    let lastKnownTeam = null;
     for (const y of allYears) {
       const rec = recordByYear.get(y);
-      const team = teamByYear.get(y);
+      const explicitTeam = teamByYear.get(y) || null;
+      const team = explicitTeam || (rec ? lastKnownTeam : null);
       const m = rec ? rec.match(/^(\d+)-(\d+)$/) : null;
+      if (explicitTeam) lastKnownTeam = explicitTeam;
 
       out.push({
         year: y,
