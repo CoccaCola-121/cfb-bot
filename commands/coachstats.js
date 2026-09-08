@@ -7,7 +7,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLatestLeagueData, getCurrentSeason, getTeamLogoUrl, getTeamColor, getTeamName } = require('../utils/data');
 const { normalize, findMatchingTeam, canonicalTeamAlias } = require('../utils/sheets');
-const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
+const { fetchSheetCsv } = require('../utils/sheets');
+const { fetchSheetCsvCached } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
 const { getNatTitleYears } = require('../utils/natTitles');
@@ -310,7 +311,7 @@ module.exports = {
     let csvRows, resumeRows;
     try {
       [csvRows, resumeRows] = await Promise.all([
-        fetchSheetCsv(COACH_SHEET_ID, COACH_SHEET_TAB),
+        fetchSheetCsvCached(COACH_SHEET_ID, COACH_SHEET_TAB),
         fetchSheetCsv(RESUME_SHEET_ID, RESUME_GID, true),
       ]);
     } catch (err) {
