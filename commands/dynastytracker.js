@@ -14,6 +14,7 @@ const {
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
+const { isLive } = require('../utils/seasonMode');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
@@ -233,6 +234,7 @@ module.exports = {
     }
 
     const currentSeason = Number(getCurrentSeason(leagueData));
+    const useLiveRecords = isLive(leagueData);
     const minYears = interaction.options.getInteger('min') || 5;
 
     let resumeRows;
@@ -260,7 +262,9 @@ module.exports = {
       return interaction.editReply('❌ Resume sheet returned no rows.');
     }
 
-    allRows = patchCurrentSeasonRows(allRows, leagueData, currentSeason);
+    if (useLiveRecords) {
+      allRows = patchCurrentSeasonRows(allRows, leagueData, currentSeason);
+    }
 
     const byCoach = new Map();
 

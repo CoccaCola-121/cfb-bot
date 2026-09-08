@@ -11,6 +11,7 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const { getUserCoachName } = require('../utils/userMap');
 const { applyOverridesToResume } = require('../utils/coachOverrides');
 const { getNatTitleYears } = require('../utils/natTitles');
+const { isLive } = require('../utils/seasonMode');
 
 const COACH_SHEET_ID  = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -317,11 +318,13 @@ module.exports = {
     const csvCoaches = parseCoachCsv(csvRows);
     const leagueData = getLatestLeagueData();
     const currentSeason = getCoachstatsCurrentSeason(leagueData);
+    const useLiveRecords = isLive(leagueData);
 
     // Patch current season live record into resume total
     // The resume sheet Total column won't include the in-progress season,
     // so we add the current team's live record from the Football GM JSON.
     function patchCurrentSeason(coach, resume) {
+      if (!useLiveRecords) return resume;
       if (!leagueData || !currentSeason) return resume;
       const leagueTeam = findTeamByName(leagueData, coach.team);
       if (!leagueTeam) return resume;
@@ -377,7 +380,14 @@ module.exports = {
     // Falls back to the CSV value if the resume sheet has no history.
     const coaches = csvCoaches.map(c => {
       const rawResume = findResumeForCoach(resumeMap, c.coach) || null;
-      const patched   = patchCurrentSeason(c, rawResume);
+      const baseResume = rawResume || (useLiveRecords ? null : {
+        record: '0-0',
+        wins: 0,
+        losses: 0,
+        pct: 0,
+        history: [],
+      });
+      const patched   = patchCurrentSeason(c, baseResume);
       const finalResume = applyOverridesToResume(patched, c.coach, c.team);
       const derivedYears = finalResume?.history?.length || 0;
       const years = derivedYears > 0 ? derivedYears : c.years;

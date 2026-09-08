@@ -19,6 +19,7 @@ const {
   getTeamName,
 } = require('../utils/data');
 const { applyOverridesToLeaderboardRecord } = require('../utils/coachOverrides');
+const { isLive } = require('../utils/seasonMode');
 
 const COACH_SHEET_ID   = process.env.NZCFL_COACH_SHEET_ID  || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 const COACH_SHEET_TAB  = process.env.NZCFL_COACH_SHEET_TAB || 'Coach';
@@ -81,8 +82,9 @@ function findLeagueTeamByName(leagueData, name) {
 
 // Add the current in-progress season's W/L onto a coach's resume totals so the
 // leaderboard reflects live records, matching /coachstats behavior.
-function patchRecordWithCurrentSeason(leagueData, coach, record) {
+function patchRecordWithCurrentSeason(leagueData, coach, record, useLiveRecords = true) {
   if (!record) return record;
+  if (!useLiveRecords) return record;
   if (!leagueData) return record;
 
   const currentSeason = getCurrentSeason(leagueData);
@@ -237,6 +239,7 @@ module.exports = {
     const coaches   = parseCoachCsv(csvRows).filter(c => c.years > 0);
     const recordMap = parseResumeSheet(resumeRows);
     const leagueData = getLatestLeagueData();
+    const useLiveRecords = isLive(leagueData);
 
     if (!coaches.length) return interaction.editReply('❌ No coach data found.');
 
@@ -252,8 +255,14 @@ module.exports = {
     // lands in the sheet, instead of depending on someone manually
     // bumping the Coach tab's Years column.
     const enriched = coaches.map(c => {
-      const baseRecord  = recordMap.get(normalize(c.coach)) || null;
-      const livePatched = patchRecordWithCurrentSeason(leagueData, c, baseRecord);
+      const baseRecord  = recordMap.get(normalize(c.coach)) || (useLiveRecords ? null : {
+        wins: 0,
+        losses: 0,
+        pct: 0,
+        record: '0-0',
+        history: [],
+      });
+      const livePatched = patchRecordWithCurrentSeason(leagueData, c, baseRecord, useLiveRecords);
       const finalRecord = applyOverridesToLeaderboardRecord(
         livePatched,
         c.coach,

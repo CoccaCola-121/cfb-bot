@@ -20,6 +20,7 @@ const { NAT_TITLE_ENTRIES, matchesNatTitleAlias } = require('../utils/natTitles'
 const { getUserTeam, loadCoachIndex } = require('../utils/userMap');
 const { REG_SEASON_WEEKS } = require('../utils/weekLabels');
 const { getOverridesForCoach } = require('../utils/coachOverrides');
+const { isLive } = require('../utils/seasonMode');
 
 const RESUME_SHEET_ID = '1S3EcS3V6fxfN5qxF6R-MSb763AL6W11W-QqytehCUkU';
 const RESUME_GID = '1607727992';
@@ -371,8 +372,10 @@ module.exports = {
     const allRows = parseResumeRows(resumeRows);
     let teamRows = allRows.filter((r) => r.team && teamAliasesNorm.has(normalize(r.team)));
 
-    const currentCoach = await findCurrentCoachForTeam(leagueData, team);
-    teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason, currentCoach);
+    if (isLive(leagueData)) {
+      const currentCoach = await findCurrentCoachForTeam(leagueData, team);
+      teamRows = mergeCurrentSeasonRecord(teamRows, leagueData, team, currentSeason, currentCoach);
+    }
 
     if (!teamRows.length) {
       return interaction.editReply(`*No coaching history found for ${teamLabel} on the resume sheet yet.*`);
