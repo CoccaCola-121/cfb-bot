@@ -82,7 +82,7 @@ function parseResumeRows(rows) {
       if (v) teamByYear.set(y, v);
     }
 
-    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]
+    const allYears = [...recordByYear.keys()]
       .sort((a, b) => Number(a) - Number(b));
 
     let lastKnownTeam = null;

@@ -175,7 +175,7 @@ function parseResumeSheet(rows) {
       if (v) teamByYear.set(y, v);
     }
 
-    const allYears = [...new Set([...recordByYear.keys(), ...teamByYear.keys()])]
+    const allYears = [...recordByYear.keys()]
       .sort((a, b) => +a - +b);
 
     let lastKnownTeam = null;
