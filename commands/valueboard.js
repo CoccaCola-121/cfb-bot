@@ -31,7 +31,7 @@ const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
 const INFO_SHEET_ID = process.env.NZCFL_INFO_SHEET_ID
   || '1OwHRRfBWsZa_gk5YWXWNbb0ij1qHA8wrtbPr9nwHSdY';
 
-const TARGET_YEAR = process.env.NZCFL_INFO_YEAR || '2062';
+const TARGET_YEAR = process.env.NZCFL_INFO_YEAR || '2063';
 
 const APP_SCHOOL_THRESHOLD      = 15; // top-15 ranks count as "application-level"
 const APP_SCHOOL_REQUIRED_COUNT = 3;  // need 3+ such ranks to earn the tag
