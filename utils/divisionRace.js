@@ -1,15 +1,7 @@
 const { getCurrentSeason } = require('./data');
 const { REG_SEASON_WEEKS } = require('./weekLabels');
 
-function recordPct(wins = 0, losses = 0, ties = 0) {
-  const games = wins + losses + ties;
-  if (games <= 0) return 0;
-  return (wins + ties * 0.5) / games;
-}
-
-function pairKey(tidA, tidB) {
-  return tidA < tidB ? `${tidA}-${tidB}` : `${tidB}-${tidA}`;
-}
+const { pairKey, buildDivisionH2H, getDivisionLeaderTids } = require('./divisionTiebreakers');
 
 function cloneState(state) {
   return new Map([...state.entries()].map(([tid, value]) => [tid, { ...value }]));
@@ -118,47 +110,7 @@ function buildCurrentState(division) {
 }
 
 function buildCurrentH2H(leagueData, divisionTeamTids) {
-  const currentSeason = getCurrentSeason(leagueData);
-  const divisionTidSet = new Set(divisionTeamTids);
-  const map = new Map();
-
-  for (const game of leagueData.games || []) {
-    if (currentSeason !== null && currentSeason !== undefined) {
-      if (game.season !== undefined && Number(game.season) !== Number(currentSeason)) continue;
-    }
-
-    const teams = Array.isArray(game.teams) ? game.teams : null;
-    if (!teams || teams.length < 2) continue;
-    if (typeof teams[0]?.pts !== 'number' || typeof teams[1]?.pts !== 'number') continue;
-
-    const aTid = Number(teams[0].tid);
-    const bTid = Number(teams[1].tid);
-    if (!divisionTidSet.has(aTid) || !divisionTidSet.has(bTid)) continue;
-
-    const key = pairKey(aTid, bTid);
-    if (!map.has(key)) {
-      map.set(key, { lowTid: Math.min(aTid, bTid), highTid: Math.max(aTid, bTid), lowWins: 0, highWins: 0 });
-    }
-
-    const pair = map.get(key);
-    if (teams[0].pts > teams[1].pts) {
-      if (aTid === pair.lowTid) pair.lowWins += 1;
-      else pair.highWins += 1;
-    } else if (teams[1].pts > teams[0].pts) {
-      if (bTid === pair.lowTid) pair.lowWins += 1;
-      else pair.highWins += 1;
-    }
-  }
-
-  return map;
-}
-
-function getH2HRecord(h2hMap, tidA, tidB) {
-  const key = pairKey(tidA, tidB);
-  const pair = h2hMap.get(key);
-  if (!pair) return { aWins: 0, bWins: 0 };
-  if (tidA === pair.lowTid) return { aWins: pair.lowWins, bWins: pair.highWins };
-  return { aWins: pair.highWins, bWins: pair.lowWins };
+  return buildDivisionH2H(leagueData, divisionTeamTids, getCurrentSeason(leagueData));
 }
 
 function applyOutcome(state, h2hMap, game, winnerTid) {
@@ -192,50 +144,9 @@ function applyOutcome(state, h2hMap, game, winnerTid) {
   return { state: nextState, h2hMap: nextH2H };
 }
 
-function compareDivisionTeamsState(state, h2hMap, tidA, tidB) {
-  const a = state.get(tidA);
-  const b = state.get(tidB);
-
-  const aConfPct = recordPct(a.confWins, a.confLosses, a.confTies);
-  const bConfPct = recordPct(b.confWins, b.confLosses, b.confTies);
-  if (bConfPct !== aConfPct) return bConfPct - aConfPct;
-
-  const h2h = getH2HRecord(h2hMap, tidA, tidB);
-  if (h2h.aWins !== h2h.bWins) return h2h.bWins - h2h.aWins;
-
-  const aDivPct = recordPct(a.divWins, a.divLosses, a.divTies);
-  const bDivPct = recordPct(b.divWins, b.divLosses, b.divTies);
-  if (bDivPct !== aDivPct) return bDivPct - aDivPct;
-
-  return a.name.localeCompare(b.name);
-}
-
-function teamsShareRank(state, h2hMap, tidA, tidB) {
-  const a = state.get(tidA);
-  const b = state.get(tidB);
-  const sameConf =
-    a.confWins === b.confWins &&
-    a.confLosses === b.confLosses &&
-    a.confTies === b.confTies;
-  if (!sameConf) return false;
-
-  const h2h = getH2HRecord(h2hMap, tidA, tidB);
-  if (h2h.aWins !== h2h.bWins) return false;
-
-  return (
-    a.divWins === b.divWins &&
-    a.divLosses === b.divLosses &&
-    a.divTies === b.divTies
-  );
-}
-
 function isUniqueDivisionLeader(state, h2hMap, divisionTeamTids, targetTid) {
-  for (const otherTid of divisionTeamTids) {
-    if (otherTid === targetTid) continue;
-    if (teamsShareRank(state, h2hMap, targetTid, otherTid)) return false;
-    if (compareDivisionTeamsState(state, h2hMap, targetTid, otherTid) >= 0) return false;
-  }
-  return true;
+  const leaders = getDivisionLeaderTids(state, h2hMap, divisionTeamTids);
+  return leaders.length === 1 && leaders[0] === targetTid;
 }
 
 function isClinchedAfterRemaining(state, h2hMap, remainingGames, divisionTeamTids, targetTid, idx = 0) {
@@ -255,7 +166,7 @@ function isClinchedAfterRemaining(state, h2hMap, remainingGames, divisionTeamTid
 
 function canStillWinDivision(state, h2hMap, remainingGames, divisionTeamTids, targetTid, idx = 0) {
   if (idx >= remainingGames.length) {
-    return isUniqueDivisionLeader(state, h2hMap, divisionTeamTids, targetTid);
+    return getDivisionLeaderTids(state, h2hMap, divisionTeamTids).includes(targetTid);
   }
 
   const game = remainingGames[idx];

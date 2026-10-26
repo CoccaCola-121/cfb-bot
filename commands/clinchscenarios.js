@@ -4,8 +4,9 @@ const {
   getConferenceDivisionStandings,
   getConferenceLogoUrl,
   getConferenceColor,
+  getConferenceAbbrev,
 } = require('../utils/data');
-const { findMatchingTeam } = require('../utils/sheets');
+const { getUserTeam } = require('../utils/userMap');
 const {
   getTeamMetaMaps,
   getRelevantConferenceGames,
@@ -193,14 +194,6 @@ function buildDivisionScenarios(leagueData, division, nextWeekDay) {
   return output;
 }
 
-function findTeamDivision(confStandings, tid) {
-  for (const division of confStandings.divisions || []) {
-    const team = division.teams.find((entry) => entry.tid === tid);
-    if (team) return division;
-  }
-  return null;
-}
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('clinchscenarios')
@@ -208,7 +201,7 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('conference')
-        .setDescription('Conference abbreviation')
+        .setDescription('Conference abbreviation (defaults to your linked team conference)')
         .setRequired(false)
         .addChoices(
           { name: 'ACC', value: 'ACC' },
@@ -222,12 +215,6 @@ module.exports = {
           { name: 'AAC', value: 'AAC' },
           { name: 'SUN', value: 'SUN' }
         )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('team')
-        .setDescription('Team abbreviation or name')
-        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -238,68 +225,23 @@ module.exports = {
       return interaction.editReply('❌ No league data loaded.');
     }
 
-    const conferenceArg = interaction.options.getString('conference');
-    const teamArg = interaction.options.getString('team');
+    let conferenceArg = interaction.options.getString('conference');
+    if (!conferenceArg) {
+      const userTeam = await getUserTeam(leagueData, interaction.user.id);
+      if (!userTeam) {
+        return interaction.editReply(
+          '❌ No conference specified and no linked coach found. Pass a conference or run `/iam coach:<your name>` first.'
+        );
+      }
+      conferenceArg = getConferenceAbbrev(leagueData, userTeam.cid);
+      if (!conferenceArg) {
+        return interaction.editReply(`❌ Could not determine the conference for **${userTeam.abbrev}**.`);
+      }
+    }
+
     const nextWeekDay = getNextRegularSeasonDay(leagueData);
-
-    if (conferenceArg && teamArg) {
-      return interaction.editReply('❌ Pass either `conference` or `team`, not both.');
-    }
-    if (!conferenceArg && !teamArg) {
-      return interaction.editReply('❌ Pass a `conference` or a `team`.');
-    }
-
     if (!Number.isInteger(nextWeekDay)) {
       return interaction.editReply('No clinch scenarios this week.');
-    }
-
-    if (teamArg) {
-      const team = findMatchingTeam(leagueData, teamArg);
-      if (!team || team.disabled) {
-        return interaction.editReply(`❌ Could not find a team matching **${teamArg}**.`);
-      }
-
-      const allConfs = ['ACC', 'B1G', 'B12', 'P12', 'SEC', 'MW', 'MAC', 'C-USA', 'AAC', 'SUN'];
-      let teamConference = null;
-      let teamDivision = null;
-      for (const conf of allConfs) {
-        const standings = getConferenceDivisionStandings(leagueData, conf);
-        if (!standings) continue;
-        const division = findTeamDivision(standings, team.tid);
-        if (division) {
-          teamConference = standings;
-          teamDivision = division;
-          break;
-        }
-      }
-
-      if (!teamConference || !teamDivision) {
-        return interaction.editReply(`❌ Could not find standings context for **${team.abbrev}**.`);
-      }
-
-      const divisionScenarios = buildDivisionScenarios(leagueData, teamDivision, nextWeekDay)
-        .filter((entry) => entry.team.tid === team.tid);
-
-      if (!divisionScenarios.length) {
-        return interaction.editReply(`No clinch scenarios this week for **${team.abbrev}**.`);
-      }
-
-      const entry = divisionScenarios[0];
-      const description = entry.alreadyClinched
-        ? `**${entry.team.abbrev}** has already clinched the division.`
-        : entry.scenarios.map((line, idx) => `\`${idx + 1}.\` ${line}`).join('\n');
-      const embed = new EmbedBuilder()
-        .setTitle(`Clinch Scenarios — ${entry.team.name} (${entry.team.abbrev})`)
-        .setColor(getConferenceColor(leagueData, teamConference.conferenceAbbrev))
-        .setDescription(description)
-        .setFooter({
-          text: `Week ${entry.week} • Division title clinch scenarios only`,
-        });
-
-      const logo = getConferenceLogoUrl(leagueData, teamConference.conferenceAbbrev);
-      if (logo) embed.setThumbnail(logo);
-
-      return interaction.editReply({ embeds: [embed] });
     }
 
     const confStandings = getConferenceDivisionStandings(leagueData, conferenceArg);
@@ -336,7 +278,7 @@ module.exports = {
       .setColor(getConferenceColor(leagueData, confStandings.conferenceAbbrev))
       .setDescription(divisionSections.join('\n\n').slice(0, 4000))
       .setFooter({
-        text: `Week ${scenarioWeek ?? '?'} • Division title clinch scenarios only`,
+        text: `Week ${scenarioWeek ?? '?'} • Clinches confirmed through conference, group H2H and division records; later tiebreakers unresolved.`,
       });
 
     const logo = getConferenceLogoUrl(leagueData, confStandings.conferenceAbbrev);

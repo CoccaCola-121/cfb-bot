@@ -7,6 +7,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { normalize } = require('../utils/sheets');
 const { fetchSheetCsvCached: fetchSheetCsv } = require('../utils/sheetCache');
+const { getUserTeam } = require('../utils/userMap');
 const {
   getLatestLeagueData,
   getCurrentSeason,
@@ -16,6 +17,7 @@ const {
   findConferenceByAbbrev,
   getConferenceLogoUrl,
   getConferenceColor,
+  getConferenceAbbrev,
   safeNumber,
   formatRecord,
 } = require('../utils/data');
@@ -127,8 +129,8 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName('conference')
-        .setDescription('Conference abbreviation')
-        .setRequired(true)
+        .setDescription('Conference abbreviation (defaults to your linked team conference)')
+        .setRequired(false)
         .addChoices(
           { name: 'ACC', value: 'ACC' },
           { name: 'B1G', value: 'B1G' },
@@ -151,7 +153,19 @@ module.exports = {
       return interaction.editReply('❌ No league data loaded. Ask a mod to run `/loadweek`.');
     }
 
-    const confAbbrev = interaction.options.getString('conference');
+    let confAbbrev = interaction.options.getString('conference');
+    if (!confAbbrev) {
+      const userTeam = await getUserTeam(leagueData, interaction.user.id);
+      if (!userTeam) {
+        return interaction.editReply(
+          '❌ No conference specified and no linked coach found. Pass a conference or run `/iam coach:<your name>` first.'
+        );
+      }
+      confAbbrev = getConferenceAbbrev(leagueData, userTeam.cid);
+      if (!confAbbrev) {
+        return interaction.editReply(`❌ Could not determine the conference for **${userTeam.abbrev}**.`);
+      }
+    }
     const conf = findConferenceByAbbrev(leagueData, confAbbrev);
     if (!conf) {
       return interaction.editReply(`❌ Could not find conference **${confAbbrev}**.`);

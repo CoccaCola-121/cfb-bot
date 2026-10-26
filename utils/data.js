@@ -6,6 +6,7 @@
   const path = require('path');
   const zlib = require('zlib');
   const { REG_SEASON_WEEKS, getWeekLabel } = require('./weekLabels');
+  const { buildDivisionH2H, rankDivisionTeams } = require('./divisionTiebreakers');
 
   const fetchFn = globalThis.fetch.bind(globalThis);
 
@@ -872,26 +873,6 @@
 
   // ── Conference standings by division ─────────────────────────
 
-  function compareDivisionTeams(leagueData, a, b) {
-    // Primary: conference record.
-    const aConfPct = Number(formatPct(a.confWins, a.confLosses, a.confTies));
-    const bConfPct = Number(formatPct(b.confWins, b.confLosses, b.confTies));
-    if (bConfPct !== aConfPct) return bConfPct - aConfPct;
-
-    // Secondary: head-to-head record.
-    const h2h = getHeadToHeadRecord(leagueData, a.tid, b.tid);
-    if (h2h.aWins !== h2h.bWins) {
-      return h2h.bWins - h2h.aWins;
-    }
-
-    // Tertiary: division record.
-    const aDivPct = Number(formatPct(a.divWins, a.divLosses, a.divTies));
-    const bDivPct = Number(formatPct(b.divWins, b.divLosses, b.divTies));
-    if (bDivPct !== aDivPct) return bDivPct - aDivPct;
-
-    return a.name.localeCompare(b.name);
-  }
-
   function getConferenceDivisionStandings(leagueData, conferenceAbbrev) {
     const conf = findConferenceByAbbrev(leagueData, conferenceAbbrev);
     if (!conf) return null;
@@ -942,42 +923,8 @@
 
     const divisions = [...divisionMap.values()]
       .map((division) => {
-        const sortedTeams = [...division.teams].sort((a, b) => compareDivisionTeams(leagueData, a, b));
-
-        const rankedTeams = [];
-        let currentRank = 1;
-
-        for (let i = 0; i < sortedTeams.length; i++) {
-          if (i === 0) {
-            rankedTeams.push({ ...sortedTeams[i], rank: 1 });
-            continue;
-          }
-
-          const prev = sortedTeams[i - 1];
-          const curr = sortedTeams[i];
-
-          const sameConfRecord =
-            curr.confWins === prev.confWins &&
-            curr.confLosses === prev.confLosses &&
-            curr.confTies === prev.confTies;
-
-          const h2h = getHeadToHeadRecord(leagueData, curr.tid, prev.tid);
-          const h2hTied = h2h.aWins === h2h.bWins;
-
-          const sameDivRecord =
-            curr.divWins === prev.divWins &&
-            curr.divLosses === prev.divLosses &&
-            curr.divTies === prev.divTies;
-
-          // Tiebreakers run in order: conf record → H2H → div record. Teams
-          // share a rank only when every tier is tied.
-          if (sameConfRecord && h2hTied && sameDivRecord) {
-            rankedTeams.push({ ...curr, rank: currentRank });
-          } else {
-            currentRank = i + 1;
-            rankedTeams.push({ ...curr, rank: currentRank });
-          }
-        }
+        const h2h = buildDivisionH2H(leagueData, division.teams.map((team) => team.tid), currentSeason);
+        const rankedTeams = rankDivisionTeams(division.teams, h2h);
 
         return {
           did: division.did,

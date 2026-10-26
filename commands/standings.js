@@ -131,7 +131,7 @@ module.exports = {
         .setColor(conferenceColor)
         .setDescription(lines.join('\n\n'))
         .setFooter({
-          text: 'Football GM export • Sorted by conference record, then head-to-head, then division record. Eliminated = cannot catch division leader.',
+          text: 'Conference record → group head-to-head → division record. Ties needing later tiebreakers remain in contention.',
         });
 
       if (conferenceLogo) {

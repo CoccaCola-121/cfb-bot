@@ -32,7 +32,8 @@ const HELP_CATEGORIES = {
       '`/playerleaders <stat>` — See the top players in one stat.',
       '`/playerpage <player>` — Open one player’s profile.',
       '`/injuries <team>` — See injuries and redshirts.',
-      '`/confoverview <conference>` — Quick conference-wide snapshot.',
+      '`/confoverview [conference]` — Conference snapshot; defaults to your linked team’s conference.',
+      '`/clinchscenarios [conference]` — Division clinch scenarios for a conference; defaults to yours.',
     ],
   },
   coaches: {
